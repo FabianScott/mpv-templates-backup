@@ -2,6 +2,7 @@ import numpy as np
 import math
 import torch
 import torch.nn.functional as F
+import torch.nn as nn
 import typing
 
 
@@ -14,14 +15,16 @@ def get_gausskernel_size(sigma, force_odd = True):
 
 def gaussian1d(x: torch.Tensor, sigma: float) -> torch.Tensor: 
     '''Function that computes values of a (1D) Gaussian with zero mean and variance sigma^2'''
-    out =  torch.zeros(x.shape)
-    return out
+    coeff = 1 / (math.sqrt(2 * math.pi * sigma))
+    exp = torch.exp(-((x ** 2) / (2 * math.pi)))
+    return coeff * exp
 
 
 def gaussian_deriv1d(x: torch.Tensor, sigma: float) -> torch.Tensor:  
     '''Function that computes values of a (1D) Gaussian derivative'''
-    out =  torch.zeros(x.shape)
-    return out
+    gauss = gaussian1d(x, sigma)
+    exp = - x / (sigma ** 2)
+    return gauss * exp
 
 def filter2d(x: torch.Tensor, kernel: torch.Tensor) -> torch.Tensor:
     """Function that convolves a tensor with a kernel.
@@ -40,11 +43,16 @@ def filter2d(x: torch.Tensor, kernel: torch.Tensor) -> torch.Tensor:
         torch.Tensor: the convolved tensor of same size and numbers of channels
         as the input.
     """
-    out =  x
+    kernel = kernel.flip((-2, -1)).unsqueeze(0).unsqueeze(0)
+
+    # Apply convolution with padding to keep the output size the same
+    x_pad = F.pad(x, (kernel.shape[-1]//2,) * 4, mode='replicate')
+    output = F.conv2d(x_pad, kernel)
+
+    return output
     ## Do not forget about flipping the kernel!
     ## See in details here https://towardsdatascience.com/convolution-vs-correlation-af868b6b4fb5
     
-    return out
 
 def gaussian_filter2d(x: torch.Tensor, sigma: float) -> torch.Tensor:
     r"""Function that blurs a tensor using a Gaussian filter.
