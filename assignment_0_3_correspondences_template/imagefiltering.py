@@ -67,9 +67,17 @@ def gaussian_filter2d(x: torch.Tensor, sigma: float) -> torch.Tensor:
         - Input: :math:`(B, C, H, W)`
         - Output: :math:`(B, C, H, W)`
 
-    """ 
+    """
     ksize = get_gausskernel_size(sigma)
-    out = x
+    x_pad = F.pad(x, (ksize//2,) * 4, mode='replicate')
+
+    # x_size: 1, 1, 1, ksize
+    kernel_x = gaussian1d(torch.arange(-ksize//2, ksize//2), sigma).unsqueeze(0).unsqueeze(0).unsqueeze(0)
+    # y_size: 1, 1, ksize, 1
+    kernel_y = kernel_x.reshape((-1, 1)).unsqueeze(0).unsqueeze(0)
+    out = F.conv2d(x_pad, kernel_x)
+    out = F.conv2d(out, kernel_y)
+
     return out
 
 
@@ -86,7 +94,19 @@ def spatial_gradient_first_order(x: torch.Tensor, sigma: float) -> torch.Tensor:
     """
     b, c, h, w = x.shape
     ksize = get_gausskernel_size(sigma)
-    out =  torch.zeros(b,c,2,h,w)
+    x_gauss = gaussian_filter2d(x, sigma)
+
+    kernel_grad_x = torch.tensor([-1., 0, 1]).unsqueeze(0).unsqueeze(0).unsqueeze(0)
+    kernel_grad_y = kernel_grad_x.view((-1, 1)).unsqueeze(0).unsqueeze(0)
+
+    x_x = F.pad(x_gauss, (1,1,0,0), mode='replicate')
+    x_y = F.pad(x_gauss, (0,0,1,1), mode='replicate')
+    gx = F.conv2d(x_x, kernel_grad_x)
+    gy = F.conv2d(x_y, kernel_grad_y)
+
+    out = torch.empty((b, c, 2, h, w), dtype=x.dtype)
+    out[:, :, 0] = gx
+    out[:, :, 1] = gy
     return out
 
 
