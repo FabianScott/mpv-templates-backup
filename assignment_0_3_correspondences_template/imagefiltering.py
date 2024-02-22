@@ -6,25 +6,26 @@ import torch.nn as nn
 import typing
 
 
-def get_gausskernel_size(sigma, force_odd = True):
+def get_gausskernel_size(sigma, force_odd=True):
     ksize = 2 * math.ceil(sigma * 3.0) + 1
-    if ksize % 2  == 0 and force_odd:
-        ksize +=1
+    if ksize % 2 == 0 and force_odd:
+        ksize += 1
     return int(ksize)
 
 
-def gaussian1d(x: torch.Tensor, sigma: float) -> torch.Tensor: 
+def gaussian1d(x: torch.Tensor, sigma: float) -> torch.Tensor:
     '''Function that computes values of a (1D) Gaussian with zero mean and variance sigma^2'''
     coeff = 1 / (math.sqrt(2 * math.pi * sigma))
     exp = torch.exp(-((x ** 2) / (2 * math.pi)))
     return coeff * exp
 
 
-def gaussian_deriv1d(x: torch.Tensor, sigma: float) -> torch.Tensor:  
+def gaussian_deriv1d(x: torch.Tensor, sigma: float) -> torch.Tensor:
     '''Function that computes values of a (1D) Gaussian derivative'''
     gauss = gaussian1d(x, sigma)
     exp = - x / (sigma ** 2)
     return gauss * exp
+
 
 def filter2d(x: torch.Tensor, kernel: torch.Tensor) -> torch.Tensor:
     """Function that convolves a tensor with a kernel.
@@ -46,13 +47,13 @@ def filter2d(x: torch.Tensor, kernel: torch.Tensor) -> torch.Tensor:
     kernel = kernel.flip((-2, -1)).unsqueeze(0).unsqueeze(0)
 
     # Apply convolution with padding to keep the output size the same
-    x_pad = F.pad(x, (kernel.shape[-1]//2,) * 4, mode='replicate')
+    x_pad = F.pad(x, (kernel.shape[-1] // 2,) * 4, mode='replicate')
     output = F.conv2d(x_pad, kernel)
 
     return output
     ## Do not forget about flipping the kernel!
     ## See in details here https://towardsdatascience.com/convolution-vs-correlation-af868b6b4fb5
-    
+
 
 def gaussian_filter2d(x: torch.Tensor, sigma: float) -> torch.Tensor:
     r"""Function that blurs a tensor using a Gaussian filter.
@@ -69,10 +70,10 @@ def gaussian_filter2d(x: torch.Tensor, sigma: float) -> torch.Tensor:
 
     """
     ksize = get_gausskernel_size(sigma)
-    x_pad = F.pad(x, (ksize//2,) * 4, mode='replicate')
+    x_pad = F.pad(x, (ksize // 2,) * 4, mode='replicate')
 
     # x_size: 1, 1, 1, ksize
-    kernel_x = gaussian1d(torch.arange(-ksize//2, ksize//2), sigma).unsqueeze(0).unsqueeze(0).unsqueeze(0)
+    kernel_x = gaussian1d(torch.arange(-ksize // 2, ksize // 2), sigma).unsqueeze(0).unsqueeze(0).unsqueeze(0)
     # y_size: 1, 1, ksize, 1
     kernel_y = kernel_x.reshape((-1, 1)).unsqueeze(0).unsqueeze(0)
     out = F.conv2d(x_pad, kernel_x)
@@ -99,8 +100,8 @@ def spatial_gradient_first_order(x: torch.Tensor, sigma: float) -> torch.Tensor:
     kernel_grad_x = torch.tensor([-1., 0, 1]).unsqueeze(0).unsqueeze(0).unsqueeze(0)
     kernel_grad_y = kernel_grad_x.view((-1, 1)).unsqueeze(0).unsqueeze(0)
 
-    x_x = F.pad(x_gauss, (1,1,0,0), mode='replicate')
-    x_y = F.pad(x_gauss, (0,0,1,1), mode='replicate')
+    x_x = F.pad(x_gauss, (1, 1, 0, 0), mode='replicate')
+    x_y = F.pad(x_gauss, (0, 0, 1, 1), mode='replicate')
     gx = F.conv2d(x_x, kernel_grad_x)
     gy = F.conv2d(x_y, kernel_grad_y)
 
@@ -111,7 +112,7 @@ def spatial_gradient_first_order(x: torch.Tensor, sigma: float) -> torch.Tensor:
 
 
 def affine(center: torch.Tensor, unitx: torch.Tensor, unity: torch.Tensor) -> torch.Tensor:
-    r"""Computes transformation matrix A which transforms point in homogeneous coordinates from canonical coordinate system into image
+    r"""Computes transformation matrix A which transforms a point in homogeneous coordinates from the canonical coordinate system into image
 
     Return:
         torch.Tensor: affine tranformation matrix
@@ -124,8 +125,14 @@ def affine(center: torch.Tensor, unitx: torch.Tensor, unity: torch.Tensor) -> to
     assert center.size(0) == unitx.size(0)
     assert center.size(0) == unity.size(0)
     B = center.size(0)
-    out =  torch.eye(3).unsqueeze(0).repeat(B, 1, 1)
+    out = torch.zeros((B, 3, 3), dtype=unitx.dtype)
+    out[:, :2, 0] = unitx
+    out[:, :2, 1] = unity
+    out[:, :2, 2] = center
+    out[:, 2:, 2:] = 1
+
     return out
+
 
 def extract_affine_patches(input: torch.Tensor,
                            A: torch.Tensor,
@@ -144,21 +151,43 @@ def extract_affine_patches(input: torch.Tensor,
     Returns:
         patches: (torch.Tensor) :math:`(N, CH, PS,PS)`
     """
-    b,ch,h,w = input.size()
+    assert input.size(0) > 0
+    b, ch, h, w = input.size()
     num_patches = A.size(0)
     # Functions, which might be useful: torch.meshgrid, torch.nn.functional.grid_sample
     # You are not allowed to use function torch.nn.functional.affine_grid
     # Note, that F.grid_sample expects coordinates in a range from -1 to 1
     # where (-1, -1) - topleft, (1,1) - bottomright and (0,0) center of the image
-    out =  torch.zeros(num_patches, ch, PS, PS)
-    return out
+
+    # Step 1: Generate grid of coordinates for the output patch manually
+    grid_x, grid_y = torch.meshgrid(torch.linspace(-1, 1, PS), torch.linspace(-1, 1, PS))
+    grid = torch.stack([grid_x, grid_y], dim=-1).view(PS, PS, 2)
+    grid_ = torch.nn.functional.affine_grid(A[:, :2], torch.Size((num_patches, ch, PS, PS)))  - A[:, None, None, :2, 2]
+    grid_[:, :, :, 0] = grid_[:, :, :, 0]/w
+    grid_[:, :, :, 1] = grid_[:, :, :, 1]/h
+    # Step 2: Apply the inverse of the affine transformation to the grid
+    inv_A = torch.inverse(A[:, :2, :2]).unsqueeze(1)
+    translated_grid = torch.matmul(grid - A[:, None, None, :2, 2], inv_A)
+
+    # Step 3: Rescale the coordinates to match the image size
+    translated_grid[..., 0] = ext * (translated_grid[..., 0]) / w  # x-coordinates
+    translated_grid[..., 1] = ext * (translated_grid[..., 1]) / h  # y-coordinates
+
+    imgs = input[img_idxs].squeeze()
+    if imgs.ndim < 4:
+        imgs = imgs.unsqueeze(0)
+    # Step 4: Use grid_sample to extract patches from the input image using the computed grid
+    patches_ = F.grid_sample(imgs, grid_, align_corners=True)
+    patches = F.grid_sample(imgs, translated_grid, align_corners=True)
+
+    return patches
 
 
 def extract_antializased_affine_patches(input: torch.Tensor,
-                           A: torch.Tensor,
-                           img_idxs: torch.Tensor,
-                           PS: int = 32,
-                           ext: float = 6.0):
+                                        A: torch.Tensor,
+                                        img_idxs: torch.Tensor,
+                                        PS: int = 32,
+                                        ext: float = 6.0):
     """Extract patches defined by affine transformations A from scale pyramid created image tensor X.
     It runs your implementation of the `extract_affine_patches` function, so it would not work w/o it.
     You do not need to ever modify this finction, implement `extract_affine_patches` instead.
@@ -174,9 +203,9 @@ def extract_antializased_affine_patches(input: torch.Tensor,
         patches: (torch.Tensor) :math:`(N, CH, PS,PS)`
     """
     import kornia
-    b,ch,h,w = input.size()
+    b, ch, h, w = input.size()
     num_patches = A.size(0)
-    scale = (kornia.feature.get_laf_scale(ext * A.unsqueeze(0)[:,:,:2,:]) / float(PS))[0]
+    scale = (kornia.feature.get_laf_scale(ext * A.unsqueeze(0)[:, :, :2, :]) / float(PS))[0]
     half: float = 0.5
     pyr_idx = (scale.log2()).relu().long()
     cur_img = input
@@ -185,14 +214,14 @@ def extract_antializased_affine_patches(input: torch.Tensor,
     while min(cur_img.size(2), cur_img.size(3)) >= PS:
         _, ch_cur, h_cur, w_cur = cur_img.size()
         scale_mask = (pyr_idx == cur_pyr_level).squeeze()
-        if (scale_mask.float().sum()) >= 0:
+        if (scale_mask.float().sum()) > 0:
             scale_mask = (scale_mask > 0).view(-1)
             current_A = A[scale_mask]
-            current_A[:, :2, :3] *= (float(h_cur)/float(h))
+            current_A[:, :2, :3] *= (float(h_cur) / float(h))
             patches = extract_affine_patches(cur_img,
-                                 current_A, 
-                                 img_idxs[scale_mask],
-                                 PS, ext)
+                                             current_A,
+                                             img_idxs[scale_mask],
+                                             PS, ext)
             out.masked_scatter_(scale_mask.view(-1, 1, 1, 1), patches)
         cur_img = kornia.geometry.pyrdown(cur_img)
         cur_pyr_level += 1
