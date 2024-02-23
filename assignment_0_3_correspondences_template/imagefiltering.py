@@ -134,53 +134,91 @@ def affine(center: torch.Tensor, unitx: torch.Tensor, unity: torch.Tensor) -> to
     return out
 
 
+import torch
+import torch.nn.functional as F
+
+
 def extract_affine_patches(input: torch.Tensor,
                            A: torch.Tensor,
                            img_idxs: torch.Tensor,
                            PS: int = 32,
                            ext: float = 6.0):
-    """Extract patches defined by affine transformations A from image tensor X.
-    
-    Args:
-        input: (torch.Tensor) images, :math:`(B, CH, H, W)`
-        A: (torch.Tensor). :math:`(N, 3, 3)`
-        img_idxs: (torch.Tensor). :math:`(N, 1)` indexes of image in batch, where patch belongs to
-        PS: (int) output patch size in pixels, default = 32
-        ext (float): output patch size in unit vectors. 
-
-    Returns:
-        patches: (torch.Tensor) :math:`(N, CH, PS,PS)`
-    """
     assert input.size(0) > 0
     b, ch, h, w = input.size()
     num_patches = A.size(0)
-    # Functions, which might be useful: torch.meshgrid, torch.nn.functional.grid_sample
-    # You are not allowed to use function torch.nn.functional.affine_grid
-    # Note, that F.grid_sample expects coordinates in a range from -1 to 1
-    # where (-1, -1) - topleft, (1,1) - bottomright and (0,0) center of the image
 
-    # Step 1: Generate grid of coordinates for the output patch manually
-    grid_x, grid_y = torch.meshgrid(torch.linspace(-1, 1, PS), torch.linspace(-1, 1, PS))
-    grid = torch.stack([grid_x, grid_y], dim=-1).view(PS, PS, 2)
-    grid_ = torch.nn.functional.affine_grid(A[:, :2], torch.Size((num_patches, ch, PS, PS)))  - A[:, None, None, :2, 2]
+    # Generate coordinates for the output patches
+    grid_y, grid_x = torch.meshgrid(torch.linspace(-1, 1, PS), torch.linspace(-1, 1, PS))
+    grid = torch.stack([grid_x, grid_y], dim=-1).unsqueeze(0).repeat(num_patches, 1, 1, 1)  # (N, PS, PS, 2)
+    grid_ = torch.nn.functional.affine_grid(A[:, :2], (num_patches, ch, PS, PS)) - A[:, None, None, :2, 2]
     grid_[:, :, :, 0] = grid_[:, :, :, 0]/w
     grid_[:, :, :, 1] = grid_[:, :, :, 1]/h
-    # Step 2: Apply the inverse of the affine transformation to the grid
-    inv_A = torch.inverse(A[:, :2, :2]).unsqueeze(1)
-    translated_grid = torch.matmul(grid - A[:, None, None, :2, 2], inv_A)
+    # Apply the affine transformations to the coordinates
+    A_inv = torch.inverse(A[:, :2, :2]).unsqueeze(1)  # Inverse of the rotation/scale part
+    translations = A[:, :2, 2].unsqueeze(1).unsqueeze(2)  # Translation part
+    transformed_grid = torch.matmul(grid, A[:, :2, :2]) - translations  # Apply transformation
 
-    # Step 3: Rescale the coordinates to match the image size
-    translated_grid[..., 0] = ext * (translated_grid[..., 0]) / w  # x-coordinates
-    translated_grid[..., 1] = ext * (translated_grid[..., 1]) / h  # y-coordinates
-
+    # Rescale grid to [-1, 1]
+    transformed_grid[:, :, :, 0] = transformed_grid[:, :, :, 0]/w
+    transformed_grid[:, :, :, 1] = transformed_grid[:, :, :, 1]/h
+    # Sample input image at transformed coordinates using bilinear interpolation
     imgs = input[img_idxs].squeeze()
     if imgs.ndim < 4:
         imgs = imgs.unsqueeze(0)
-    # Step 4: Use grid_sample to extract patches from the input image using the computed grid
-    patches_ = F.grid_sample(imgs, grid_, align_corners=True)
-    patches = F.grid_sample(imgs, translated_grid, align_corners=True)
+
+    patches = F.grid_sample(imgs, transformed_grid, align_corners=True)
+    patches_ = F.grid_sample(imgs, grid_)
 
     return patches
+
+
+# def extract_affine_patches(input: torch.Tensor,
+#                            A: torch.Tensor,
+#                            img_idxs: torch.Tensor,
+#                            PS: int = 32,
+#                            ext: float = 6.0):
+#     """Extract patches defined by affine transformations A from image tensor X.
+#
+#     Args:
+#         input: (torch.Tensor) images, :math:`(B, CH, H, W)`
+#         A: (torch.Tensor). :math:`(N, 3, 3)`
+#         img_idxs: (torch.Tensor). :math:`(N, 1)` indexes of image in batch, where patch belongs to
+#         PS: (int) output patch size in pixels, default = 32
+#         ext (float): output patch size in unit vectors.
+#
+#     Returns:
+#         patches: (torch.Tensor) :math:`(N, CH, PS,PS)`
+#     """
+#     assert input.size(0) > 0
+#     b, ch, h, w = input.size()
+#     num_patches = A.size(0)
+#     # Functions, which might be useful: torch.meshgrid, torch.nn.functional.grid_sample
+#     # You are not allowed to use function torch.nn.functional.affine_grid
+#     # Note, that F.grid_sample expects coordinates in a range from -1 to 1
+#     # where (-1, -1) - topleft, (1,1) - bottomright and (0,0) center of the image
+#
+#     # Step 1: Generate grid of coordinates for the output patch manually
+#     grid_x, grid_y = torch.meshgrid(torch.linspace(-1, 1, PS), torch.linspace(-1, 1, PS))
+#     grid = torch.stack([grid_x, grid_y, torch.zeros_like(grid_x)], dim=-1).view(PS, PS, -1)
+#     grid_ = torch.nn.functional.affine_grid(A[:, :2], torch.Size((num_patches, ch, PS, PS))) - A[:, None, None, :2, 2]
+#     grid_[:, :, :, 0] = grid_[:, :, :, 0]/w
+#     grid_[:, :, :, 1] = grid_[:, :, :, 1]/h
+#     # Step 2: Apply the inverse of the affine transformation to the grid
+#     inv_A = torch.inverse(A).unsqueeze(1)
+#     translated_grid = torch.matmul(grid, inv_A)
+#
+#     # Step 3: Rescale the coordinates to match the image size
+#     translated_grid[..., 0] = ext * (translated_grid[..., 0]) / w  # x-coordinates
+#     translated_grid[..., 1] = ext * (translated_grid[..., 1]) / h  # y-coordinates
+#
+#     imgs = input[img_idxs].squeeze()
+#     if imgs.ndim < 4:
+#         imgs = imgs.unsqueeze(0)
+#     # Step 4: Use grid_sample to extract patches from the input image using the computed grid
+#     patches_ = F.grid_sample(imgs, grid_)
+#     patches = F.grid_sample(imgs, translated_grid[..., :2])
+#
+#     return patches_
 
 
 def extract_antializased_affine_patches(input: torch.Tensor,
