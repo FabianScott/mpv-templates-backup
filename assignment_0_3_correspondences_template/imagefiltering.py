@@ -15,8 +15,8 @@ def get_gausskernel_size(sigma, force_odd=True):
 
 def gaussian1d(x: torch.Tensor, sigma: float) -> torch.Tensor:
     '''Function that computes values of a (1D) Gaussian with zero mean and variance sigma^2'''
-    coeff = 1 / (math.sqrt(2 * math.pi * sigma))
-    exp = torch.exp(-((x ** 2) / (2 * math.pi)))
+    coeff = 1 / (math.sqrt(2 * math.pi) * sigma )
+    exp = torch.exp(-((x ** 2) / (2 * sigma ** 2)))
     return coeff * exp
 
 
@@ -73,12 +73,10 @@ def gaussian_filter2d(x: torch.Tensor, sigma: float) -> torch.Tensor:
     x_pad = F.pad(x, (ksize // 2,) * 4, mode='replicate')
 
     # x_size: 1, 1, 1, ksize
-    kernel_x = gaussian1d(torch.arange(-ksize // 2, ksize // 2), sigma).unsqueeze(0).unsqueeze(0).unsqueeze(0)
+    kernel_1d = gaussian1d(torch.arange(-ksize//2 + 1, ksize//2 + 1), sigma=sigma)
     # y_size: 1, 1, ksize, 1
-    kernel_y = kernel_x.reshape((-1, 1)).unsqueeze(0).unsqueeze(0)
-    out = F.conv2d(x_pad, kernel_x)
-    out = F.conv2d(out, kernel_y)
-
+    kernel = torch.outer(kernel_1d, kernel_1d).unsqueeze(0).unsqueeze(0)
+    out = F.conv2d(x_pad, kernel)
     return out
 
 
@@ -126,10 +124,10 @@ def affine(center: torch.Tensor, unitx: torch.Tensor, unity: torch.Tensor) -> to
     assert center.size(0) == unity.size(0)
     B = center.size(0)
     out = torch.zeros((B, 3, 3), dtype=unitx.dtype)
-    out[:, :2, 0] = unitx
-    out[:, :2, 1] = unity
+    out[:, :2, 0] = unitx - center
+    out[:, :2, 1] = unity - center
     out[:, :2, 2] = center
-    out[:, 2:, 2:] = 1
+    out[:, 2, 2] = 1
 
     return out
 
@@ -156,7 +154,7 @@ def extract_affine_patches(input: torch.Tensor,
     # Apply the affine transformations to the coordinates
     A_inv = torch.inverse(A[:, :2, :2]).unsqueeze(1)  # Inverse of the rotation/scale part
     translations = A[:, :2, 2].unsqueeze(1).unsqueeze(2)  # Translation part
-    transformed_grid = torch.matmul(grid, A[:, :2, :2]) - translations  # Apply transformation
+    transformed_grid = torch.einsum('nptd,ndd->nptd', grid, A[:, :2, :2]) - translations  # Apply transformation
 
     # Rescale grid to [-1, 1]
     transformed_grid[:, :, :, 0] = transformed_grid[:, :, :, 0]/w
@@ -167,7 +165,7 @@ def extract_affine_patches(input: torch.Tensor,
         imgs = imgs.unsqueeze(0)
 
     patches = F.grid_sample(imgs, transformed_grid, align_corners=True)
-    patches_ = F.grid_sample(imgs, grid_)
+    patches_ = F.grid_sample(imgs, grid_)   # not used, simply here for comparison while fixing code
 
     return patches
 
