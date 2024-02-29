@@ -76,6 +76,7 @@ def gaussian_filter2d(x: torch.Tensor, sigma: float) -> torch.Tensor:
     kernel_1d = gaussian1d(torch.arange(-ksize//2 + 1, ksize//2 + 1), sigma=sigma)
     # y_size: 1, 1, ksize, 1
     kernel = torch.outer(kernel_1d, kernel_1d).unsqueeze(0).unsqueeze(0)
+    kernel = kernel / kernel.sum()
     out = F.conv2d(x_pad, kernel)
     return out
 
@@ -95,7 +96,7 @@ def spatial_gradient_first_order(x: torch.Tensor, sigma: float) -> torch.Tensor:
     ksize = get_gausskernel_size(sigma)
     x_gauss = gaussian_filter2d(x, sigma)
 
-    kernel_grad_x = torch.tensor([-1., 0, 1]).unsqueeze(0).unsqueeze(0).unsqueeze(0)
+    kernel_grad_x = torch.tensor([1., 0, -1]).unsqueeze(0).unsqueeze(0).unsqueeze(0)
     kernel_grad_y = kernel_grad_x.view((-1, 1)).unsqueeze(0).unsqueeze(0)
 
     x_x = F.pad(x_gauss, (1, 1, 0, 0), mode='replicate')
@@ -146,7 +147,7 @@ def extract_affine_patches(input: torch.Tensor,
     num_patches = A.size(0)
 
     # Generate coordinates for the output patches
-    grid_y, grid_x = torch.meshgrid(torch.linspace(-1, 1, PS), torch.linspace(-1, 1, PS))
+    grid_y, grid_x = torch.meshgrid(torch.linspace(-ext, ext, PS), torch.linspace(-ext, ext, PS))
     grid = torch.stack([grid_x, grid_y], dim=-1).unsqueeze(0).repeat(num_patches, 1, 1, 1)  # (N, PS, PS, 2)
     grid_ = torch.nn.functional.affine_grid(A[:, :2], (num_patches, ch, PS, PS)) - A[:, None, None, :2, 2]
     grid_[:, :, :, 0] = grid_[:, :, :, 0]/w
@@ -165,7 +166,7 @@ def extract_affine_patches(input: torch.Tensor,
         imgs = imgs.unsqueeze(0)
 
     patches = F.grid_sample(imgs, transformed_grid, align_corners=True)
-    patches_ = F.grid_sample(imgs, grid_)   # not used, simply here for comparison while fixing code
+    patches_ = F.grid_sample(imgs, grid_, align_corners=True)   # not used, simply here for comparison while fixing code
 
     return patches
 

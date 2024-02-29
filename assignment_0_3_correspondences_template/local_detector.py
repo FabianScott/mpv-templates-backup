@@ -40,15 +40,15 @@ def harris_response(x: torch.Tensor,
       - Input: :math:`(B, C, H, W)`
       - Output: :math:`(B, C, H, W)`
     """
-    temp = spatial_gradient_first_order(x=x, sigma=sigma_i)
+    temp = spatial_gradient_first_order(x=x, sigma=sigma_d)
     Ix, Iy = temp[:, :, 0], temp[:, :, 1]
-    Ixx = gaussian_filter2d(x=Ix ** 2, sigma=sigma_d)
-    Ixy = gaussian_filter2d(x=Ix * Iy, sigma=sigma_d)
-    Iyy = gaussian_filter2d(x=Iy ** 2, sigma=sigma_d)
+    Ixx = gaussian_filter2d(x=Ix ** 2, sigma=sigma_i)
+    Ixy = gaussian_filter2d(x=Ix * Iy, sigma=sigma_i)
+    Iyy = gaussian_filter2d(x=Iy ** 2, sigma=sigma_i)
 
     det_M = (Ixx * Iyy) - (Ixy ** 2)
-    trace_M = Ixx + Iyy
-    out = det_M - alpha * (trace_M ** 2)
+    trace_M = (Ixx + Iyy) ** 2
+    out = det_M - alpha * trace_M
 
     return out
 
@@ -85,7 +85,7 @@ def harris(x: torch.Tensor, sigma_d: float, sigma_i: float, th: float = 0):
       - Output: :math:`(N, 4)`, where N - total number of maxima and 4 is (b,c,h,w) coordinates
     """
     harris_mat = harris_response(x, sigma_d=sigma_d, sigma_i=sigma_i)
-    # To get coordinates of the responces, you can use torch.nonzero function
+    # To get coordinates of the responses, you can use torch.nonzero function
     out = torch.nonzero(harris_mat > th)
     return out
 
