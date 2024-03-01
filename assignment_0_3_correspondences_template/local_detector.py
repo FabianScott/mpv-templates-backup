@@ -115,10 +115,9 @@ def create_scalespace(x: torch.Tensor, n_levels: int, sigma_step: float):
     sigmas = [1]
 
     for level in range(0, n_levels):
-        sigma = sigmas[level] * sigma_step
-        smoothed_image = gaussian_filter2d(x, sigma=sigma)
+        smoothed_image = gaussian_filter2d(x, sigma=sigmas[-1])
         image_pyramid.append(smoothed_image)
-        sigmas.append(sigma)
+        sigmas.append(sigmas[level] * sigma_step)
 
     image_pyramid = torch.stack(image_pyramid, dim=2)  # Stack along the third dimension to create the pyramid tensor
 
@@ -136,13 +135,14 @@ def nms3d(x: torch.Tensor, th: float = 0):
     """
     B, C, D, H, W = x.size()
 
-    x_reshaped = x.reshape(B * C, 1, D, H, W)   # Combine the channels in order to make it spatial
+    x_reshaped = x.reshape(B * C, 1, D, H, W)  # Combine the channels in order to make it spatial
     max_pooled = F.max_pool3d(x_reshaped, kernel_size=3, stride=1, padding=1)
     mask = (x_reshaped == max_pooled) & (x_reshaped > th)
 
     out = (x_reshaped * mask.float()).reshape(B, C, D, H, W)
 
     return out
+
 
 def scalespace_harris_response(x: torch.Tensor,
                                n_levels: int = 40,
@@ -157,7 +157,13 @@ def scalespace_harris_response(x: torch.Tensor,
       - Input: :math:`(B, C, H, W)`
       - Output: :math:`(B, C, N_LEVELS, H, W)`, List(floats)
     """
-    out = torch.zeros_like(x)
+    scalespace, sigmas = create_scalespace(x, n_levels, sigma_step)
+    response_list = []
+    for scale_level in range(n_levels):
+        response_list.append(harris_response(scalespace[:, :, scale_level, :, :],
+                                             sigma_d=sigmas[scale_level],
+                                             sigma_i=sigmas[scale_level]).unsqueeze(2))
+    out = torch.cat(response_list, dim=2)
     return out
 
 
@@ -178,14 +184,7 @@ def scalespace_harris(x: torch.Tensor,
     """
     # To get coordinates of the responses, you can use torch.nonzero function
     # Don't forget to convert scale index to scale value with use of sigma
-    image_pyramid, sigmas = create_scalespace(x, n_levels, sigma_step)
-    harris_responses_coords = []
-
-    for scale_level in range(0, n_levels):
-        coords = harris(image_pyramid[:, :, scale_level], sigma_d=sigmas[scale_level], sigma_i=sigmas[scale_level], th=th)
-        harris_responses_coords.append(coords)
-
-    # Stack the list of coordinates along the first dimension to get the final tensor
-    harris_responses_coords = torch.cat(harris_responses_coords, dim=0)
-    harris_responses_coords = torch.cat((torch.ones((harris_responses_coords.size(0), 1)), harris_responses_coords), dim=1)
-    return harris_responses_coords
+    out = torch.nonzero(scalespace_harris_response(x=x,
+                                                   n_levels=n_levels,
+                                                   sigma_step=sigma_step) > th)
+    return out
