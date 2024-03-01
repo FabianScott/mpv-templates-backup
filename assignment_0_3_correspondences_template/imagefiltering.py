@@ -147,17 +147,13 @@ def extract_affine_patches(input: torch.Tensor,
     num_patches = A.size(0)
 
     # Generate coordinates for the output patches
-    grid_y, grid_x = torch.meshgrid(torch.linspace(-ext, ext, PS), torch.linspace(-ext, ext, PS))
-    grid = torch.stack([grid_x, grid_y], dim=-1).unsqueeze(0).repeat(num_patches, 1, 1, 1)  # (N, PS, PS, 2)
-    grid_ = torch.nn.functional.affine_grid(A[:, :2], (num_patches, ch, PS, PS)) - A[:, None, None, :2, 2]
-    grid_[:, :, :, 0] = grid_[:, :, :, 0]/w
-    grid_[:, :, :, 1] = grid_[:, :, :, 1]/h
-    # Apply the affine transformations to the coordinates
-    A_inv = torch.inverse(A[:, :2, :2]).unsqueeze(1)  # Inverse of the rotation/scale part
-    translations = A[:, :2, 2].unsqueeze(1).unsqueeze(2)  # Translation part
-    transformed_grid = torch.einsum('nptd,ndd->nptd', grid, A[:, :2, :2]) - translations  # Apply transformation
+    linspace = torch.linspace(0, PS, PS)
+    grid_y, grid_x, grid_z = torch.meshgrid( linspace,  torch.linspace(0, -PS, PS), linspace)
+    grid = torch.stack([grid_x, grid_y, grid_z], dim=-1).unsqueeze(0).repeat(num_patches, 1, 1, 1, 1)  # (N, PS, PS, 2)
 
-    # Rescale grid to [-1, 1]
+    translations = A[:, :2, 2].unsqueeze(1).unsqueeze(2)  # Translation part
+    transformed_grid = torch.einsum('nptxd,ndd->nptd', grid, ext * A) # Apply transformation
+
     transformed_grid[:, :, :, 0] = transformed_grid[:, :, :, 0]/w
     transformed_grid[:, :, :, 1] = transformed_grid[:, :, :, 1]/h
     # Sample input image at transformed coordinates using bilinear interpolation
@@ -165,8 +161,7 @@ def extract_affine_patches(input: torch.Tensor,
     if imgs.ndim < 4:
         imgs = imgs.unsqueeze(0)
 
-    patches = F.grid_sample(imgs, transformed_grid, align_corners=True)
-    patches_ = F.grid_sample(imgs, grid_, align_corners=True)   # not used, simply here for comparison while fixing code
+    patches = F.grid_sample(imgs, transformed_grid[..., :2], align_corners=True)
 
     return patches
 

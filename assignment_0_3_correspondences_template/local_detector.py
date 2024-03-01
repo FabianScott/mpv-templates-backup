@@ -65,7 +65,14 @@ def nms2d(x: torch.Tensor, th: float = 0):
       - Input: :math:`(B, C, H, W)`
       - Output: :math:`(B, C, H, W)`
     """
-    out = torch.zeros_like(x)
+    B, C, H, W = x.size()
+
+    x_reshaped = x.reshape(B * C, 1, H, W)
+    max_pooled = F.max_pool2d(x_reshaped, kernel_size=3, stride=1, padding=1)
+    # Where the value is the largest in its neighbourhood and larger than the threshold
+    mask = (x_reshaped == max_pooled) & (x_reshaped > th)
+    out = (x_reshaped * mask.float()).reshape(B, C, H, W)
+
     return out
 
 
@@ -127,18 +134,15 @@ def nms3d(x: torch.Tensor, th: float = 0):
       - Input: :math:`(B, C, D, H, W)`
       - Output: :math:`(B, C, D, H, W)`
     """
-    neighborhood = x.unfold(2, 3, 1).unfold(3, 3, 1).unfold(4, 3, 1)
+    B, C, D, H, W = x.size()
 
-    # Find the maximum value in each neighborhood
-    max_values, _ = neighborhood.max(dim=(2, 3, 4,), keepdim=True)
+    x_reshaped = x.reshape(B * C, 1, D, H, W)   # Combine the channels in order to make it spatial
+    max_pooled = F.max_pool3d(x_reshaped, kernel_size=3, stride=1, padding=1)
+    mask = (x_reshaped == max_pooled) & (x_reshaped > th)
 
-    # Create a mask for values greater than or equal to the threshold
-    mask = (x >= th) & (x == max_values)
+    out = (x_reshaped * mask.float()).reshape(B, C, D, H, W)
 
-    # Apply the mask to the original tensor
-    output = x * mask.float()
-
-    return output
+    return out
 
 def scalespace_harris_response(x: torch.Tensor,
                                n_levels: int = 40,
