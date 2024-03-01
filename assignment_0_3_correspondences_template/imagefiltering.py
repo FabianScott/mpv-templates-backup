@@ -147,15 +147,15 @@ def extract_affine_patches(input: torch.Tensor,
     num_patches = A.size(0)
 
     # Generate coordinates for the output patches
-    linspace = torch.linspace(0, PS, PS)
-    grid_y, grid_x, grid_z = torch.meshgrid( linspace,  torch.linspace(0, -PS, PS), linspace)
-    grid = torch.stack([grid_x, grid_y, grid_z], dim=-1).unsqueeze(0).repeat(num_patches, 1, 1, 1, 1)  # (N, PS, PS, 2)
+    linspace = torch.linspace(-1, 1, PS)
+    grid_y, grid_x, = torch.meshgrid( linspace,  linspace)
+    grid = torch.stack([grid_x, grid_y], dim=-1).repeat(num_patches, 1, 1, 1)  # (N, PS, PS, 2)
 
     translations = A[:, :2, 2].unsqueeze(1).unsqueeze(2)  # Translation part
-    transformed_grid = torch.einsum('nptxd,ndd->nptd', grid, ext * A) # Apply transformation
+    transformed_grid = torch.einsum('ntxd,ndd->ntxd', grid, A[:, :2, :2]) - translations # Apply transformation
 
-    transformed_grid[:, :, :, 0] = transformed_grid[:, :, :, 0]/w
-    transformed_grid[:, :, :, 1] = transformed_grid[:, :, :, 1]/h
+    transformed_grid[:, :, :, 0] = transformed_grid[:, :, :, 0]/w * ext
+    transformed_grid[:, :, :, 1] = transformed_grid[:, :, :, 1]/h * ext
     # Sample input image at transformed coordinates using bilinear interpolation
     imgs = input[img_idxs].squeeze()
     if imgs.ndim < 4:

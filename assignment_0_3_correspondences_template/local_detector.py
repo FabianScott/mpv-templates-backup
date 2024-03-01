@@ -3,6 +3,9 @@ import math
 import torch
 import torch.nn.functional as F
 import typing
+
+from tqdm import tqdm
+
 from imagefiltering import *
 
 
@@ -112,9 +115,9 @@ def create_scalespace(x: torch.Tensor, n_levels: int, sigma_step: float):
     """
 
     image_pyramid = []
-    sigmas = [1]
+    sigmas = [1.1]
 
-    for level in range(0, n_levels):
+    for level in tqdm(range(0, n_levels), desc='Creating Scalespace'):
         smoothed_image = gaussian_filter2d(x, sigma=sigmas[-1])
         image_pyramid.append(smoothed_image)
         sigmas.append(sigmas[level] * sigma_step)
@@ -159,7 +162,7 @@ def scalespace_harris_response(x: torch.Tensor,
     """
     scalespace, sigmas = create_scalespace(x, n_levels, sigma_step)
     response_list = []
-    for scale_level in range(n_levels):
+    for scale_level in tqdm(range(n_levels), desc='Getting Harris Response'):
         response_list.append(harris_response(scalespace[:, :, scale_level, :, :],
                                              sigma_d=sigmas[scale_level],
                                              sigma_i=sigmas[scale_level]).unsqueeze(2))
