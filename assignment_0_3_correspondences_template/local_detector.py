@@ -49,9 +49,9 @@ def harris_response(x: torch.Tensor,
     Ixy = gaussian_filter2d(x=Ix * Iy, sigma=sigma_i)
     Iyy = gaussian_filter2d(x=Iy ** 2, sigma=sigma_i)
 
-    det_M = (Ixx * Iyy) - (Ixy ** 2)
-    trace_M = (Ixx + Iyy) ** 2
-    out = det_M - alpha * trace_M
+    det_C = (Ixx * Iyy) - (Ixy ** 2)
+    trace_C = (Ixx + Iyy)
+    out = det_C - alpha * trace_C ** 2
 
     return out
 
