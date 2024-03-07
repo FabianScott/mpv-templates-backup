@@ -71,7 +71,9 @@ def estimate_patch_dominant_orientation(x: torch.Tensor, num_angular_bins: int =
     Returns:
         angles: (torch.Tensor) in radians shape [Bx1]
     """
-    out = torch.zeros(x.size(0), 1)
+    Ix, Iy = spatial_gradient_first_order(x=x, sigma=1)
+    angle = torch.atan2(Iy, Ix)
+    out = torch.histogram(angle, bins=num_angular_bins)
     return out
 
 def estimate_patch_affine_shape(x: torch.Tensor):

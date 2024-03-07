@@ -142,6 +142,7 @@ def extract_affine_patches(input: torch.Tensor,
                            img_idxs: torch.Tensor,
                            PS: int = 32,
                            ext: float = 6.0):
+    # I would love to know what goes wrong here??
     assert input.size(0) > 0
     b, ch, h, w = input.size()
     num_patches = A.size(0)
@@ -153,11 +154,11 @@ def extract_affine_patches(input: torch.Tensor,
 
     transformed_grid = []
     for a, g in zip(A, grid):
-        transformed_grid.append(g@a) # Apply transformation
+        transformed_grid.append(g@a)    # Apply transformation
     transformed_grid = torch.stack(transformed_grid)
 
-    transformed_grid[:, :, :, 0] = transformed_grid[:, :, :, 0]/w
-    transformed_grid[:, :, :, 1] = transformed_grid[:, :, :, 1]/h
+    transformed_grid[:, :, :, 0] = transformed_grid[:, :, :, 0]/transformed_grid[:, :, :, 2]
+    transformed_grid[:, :, :, 1] = transformed_grid[:, :, :, 1]/transformed_grid[:, :, :, 2]
     imgs = input[img_idxs].squeeze(1)   # Why is there an extra dimension when indexing?
 
     patches = F.grid_sample(imgs, transformed_grid[..., :2], align_corners=True)
