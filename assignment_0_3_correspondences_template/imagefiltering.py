@@ -69,6 +69,7 @@ def gaussian_filter2d(x: torch.Tensor, sigma: float) -> torch.Tensor:
         - Output: :math:`(B, C, H, W)`
 
     """
+    b, c, h, w = x.shape
     ksize = get_gausskernel_size(sigma)
     x_pad = F.pad(x, (ksize // 2,) * 4, mode='replicate')
 
@@ -76,8 +77,13 @@ def gaussian_filter2d(x: torch.Tensor, sigma: float) -> torch.Tensor:
     kernel_1d = gaussian1d(torch.arange(-ksize//2 + 1, ksize//2 + 1), sigma=sigma)
     # y_size: 1, 1, ksize, 1
     kernel = torch.outer(kernel_1d, kernel_1d).unsqueeze(0).unsqueeze(0)
-    kernel = kernel / kernel.sum()
-    out = F.conv2d(x_pad, kernel)
+    kernel = kernel / kernel[:, 0, :].sum()
+    # Apply convolution with padding
+
+    out = []
+    for i in range(c):
+        out.append(F.conv2d(x_pad[:, i], kernel,))
+    out = torch.stack(out, dim=1)
     return out
 
 
@@ -96,13 +102,18 @@ def spatial_gradient_first_order(x: torch.Tensor, sigma: float) -> torch.Tensor:
     ksize = get_gausskernel_size(sigma)
     x_gauss = gaussian_filter2d(x, sigma)
 
-    kernel_grad_x = torch.tensor([1., 0, -1]).unsqueeze(0).unsqueeze(0).unsqueeze(0)
+    kernel_grad_x = torch.tensor([-1., 0, 1]).unsqueeze(0).unsqueeze(0).unsqueeze(0)
     kernel_grad_y = kernel_grad_x.view((-1, 1)).unsqueeze(0).unsqueeze(0)
 
     x_x = F.pad(x_gauss, (1, 1, 0, 0), mode='replicate')
     x_y = F.pad(x_gauss, (0, 0, 1, 1), mode='replicate')
-    gx = F.conv2d(x_x, kernel_grad_x)
-    gy = F.conv2d(x_y, kernel_grad_y)
+
+    gx, gy = [], []
+    for i in range(c):
+        gx.append(F.conv2d(x_x[:, i], kernel_grad_x))
+        gy.append(F.conv2d(x_y[:, i], kernel_grad_y))
+    gx = torch.stack(gx, dim=1)
+    gy = torch.stack(gy, dim=1)
 
     out = torch.empty((b, c, 2, h, w), dtype=x.dtype)
     out[:, :, 0] = gx
@@ -142,6 +153,19 @@ def extract_affine_patches(input: torch.Tensor,
                            img_idxs: torch.Tensor,
                            PS: int = 32,
                            ext: float = 6.0):
+    """Extract patches defined by affine transformations A from image tensor X.
+
+    Args:
+        input: (torch.Tensor) images, :math:`(B, CH, H, W)`
+        A: (torch.Tensor). :math:`(N, 3, 3)`
+        img_idxs: (torch.Tensor). :math:`(N, 1)` indexes of image in batch, where patch belongs to
+        PS: (int) output patch size in pixels, default = 32
+        ext (float): output patch size in unit vectors.
+
+    Returns:
+        patches: (torch.Tensor) :math:`(N, CH, PS,PS)`
+    """
+
     # I would love to know what goes wrong here??
     assert input.size(0) > 0
     b, ch, h, w = input.size()

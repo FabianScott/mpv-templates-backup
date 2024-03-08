@@ -71,10 +71,12 @@ def estimate_patch_dominant_orientation(x: torch.Tensor, num_angular_bins: int =
     Returns:
         angles: (torch.Tensor) in radians shape [Bx1]
     """
-    Ix, Iy = spatial_gradient_first_order(x=x, sigma=1)
+    out = spatial_gradient_first_order(x=x, sigma=1)
+    Ix, Iy = out[:, :, 0], out[:, :, 1]
     angle = torch.atan2(Iy, Ix)
     out = torch.histogram(angle, bins=num_angular_bins)
-    return out
+    index = out.hist.argmax()
+    return out.bin_edges[index]
 
 def estimate_patch_affine_shape(x: torch.Tensor):
     """Function, which estimates the patch affine shape by second moment matrix. Returns ellipse parameters: a, b, c
