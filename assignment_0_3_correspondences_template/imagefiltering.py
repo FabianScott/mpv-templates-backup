@@ -44,11 +44,12 @@ def filter2d(x: torch.Tensor, kernel: torch.Tensor) -> torch.Tensor:
         torch.Tensor: the convolved tensor of same size and numbers of channels
         as the input.
     """
-    kernel = kernel.flip((-2, -1)).unsqueeze(0).unsqueeze(0)
 
+    b, c, h, w = x.shape
+    kernel = kernel.flip((-2, -1)).unsqueeze(0).unsqueeze(0)
     # Apply convolution with padding to keep the output size the same
     x_pad = F.pad(x, (kernel.shape[-1] // 2,) * 4, mode='replicate')
-    output = F.conv2d(x_pad, kernel)
+    output = F.conv2d(x_pad, kernel.repeat(c,1,1,1), groups=c)
 
     return output
     ## Do not forget about flipping the kernel!
@@ -71,19 +72,14 @@ def gaussian_filter2d(x: torch.Tensor, sigma: float) -> torch.Tensor:
     """
     b, c, h, w = x.shape
     ksize = get_gausskernel_size(sigma)
-    x_pad = F.pad(x, (ksize // 2,) * 4, mode='replicate')
-
     # x_size: 1, 1, 1, ksize
     kernel_1d = gaussian1d(torch.arange(-ksize//2 + 1, ksize//2 + 1), sigma=sigma)
     # y_size: 1, 1, ksize, 1
-    kernel = torch.outer(kernel_1d, kernel_1d).unsqueeze(0).unsqueeze(0)
-    kernel = kernel / kernel[:, 0, :].sum()
+    kernel = torch.outer(kernel_1d, kernel_1d)
+    kernel = kernel / kernel.sum()
     # Apply convolution with padding
+    out = filter2d(x, kernel)
 
-    out = []
-    for i in range(c):
-        out.append(F.conv2d(x_pad[:, i], kernel,))
-    out = torch.stack(out, dim=1)
     return out
 
 
@@ -102,18 +98,14 @@ def spatial_gradient_first_order(x: torch.Tensor, sigma: float) -> torch.Tensor:
     ksize = get_gausskernel_size(sigma)
     x_gauss = gaussian_filter2d(x, sigma)
 
-    kernel_grad_x = torch.tensor([-1., 0, 1]).unsqueeze(0).unsqueeze(0).unsqueeze(0)
+    kernel_grad_x = torch.tensor([-0.5, 0, 0.5]).unsqueeze(0).unsqueeze(0).unsqueeze(0)
     kernel_grad_y = kernel_grad_x.view((-1, 1)).unsqueeze(0).unsqueeze(0)
 
     x_x = F.pad(x_gauss, (1, 1, 0, 0), mode='replicate')
     x_y = F.pad(x_gauss, (0, 0, 1, 1), mode='replicate')
 
-    gx, gy = [], []
-    for i in range(c):
-        gx.append(F.conv2d(x_x[:, i], kernel_grad_x))
-        gy.append(F.conv2d(x_y[:, i], kernel_grad_y))
-    gx = torch.stack(gx, dim=1)
-    gy = torch.stack(gy, dim=1)
+    gx = F.conv2d(x_x, kernel_grad_x.repeat(c,1,1,1), groups=c)
+    gy = F.conv2d(x_y, kernel_grad_y.repeat(c,1,1,1), groups=c)
 
     out = torch.empty((b, c, 2, h, w), dtype=x.dtype)
     out[:, :, 0] = gx

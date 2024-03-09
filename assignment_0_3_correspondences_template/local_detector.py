@@ -71,7 +71,7 @@ def nms2d(x: torch.Tensor, th: float = 0):
     x_reshaped = x.reshape(B * C, 1, H, W)
     max_pooled = F.max_pool2d(x_reshaped, kernel_size=3, stride=1, padding=1)
     # Where the value is the largest in its neighbourhood and larger than the threshold
-    mask = (x_reshaped == max_pooled) & (x_reshaped > th)
+    mask = (x_reshaped - max_pooled + th) > 0
     out = (x_reshaped * mask.float()).reshape(B, C, H, W)
 
     return out
@@ -138,7 +138,7 @@ def nms3d(x: torch.Tensor, th: float = 0):
 
     x_reshaped = x.reshape(B * C, 1, D, H, W)  # Combine the channels in order to make it spatial
     max_pooled = F.max_pool3d(x_reshaped, kernel_size=3, stride=1, padding=1)
-    mask = (x_reshaped == max_pooled) & (x_reshaped > th)
+    mask = (x_reshaped - max_pooled + th) > 0
 
     out = (x_reshaped * mask.float()).reshape(B, C, D, H, W)
 
