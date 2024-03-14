@@ -132,6 +132,8 @@ def calc_sift_descriptor(input: torch.Tensor,
         - Input: (B, 1, PS, PS)
         - Output: (B, num_ang_bins * num_spatial_bins ** 2)
     '''
+    Ix, Iy = spatial_gradient_first_order(input, sigma=1.)
+    
     out = torch.zeros(input.size(0), num_ang_bins * num_spatial_bins ** 2)
     return out
 
