@@ -71,10 +71,11 @@ def nms2d(x: torch.Tensor, th: float = 0):
     x_reshaped = x.reshape(B * C, 1, H, W)
     max_pooled = F.max_pool2d(x_reshaped, kernel_size=3, stride=1, padding=1)
     # Where the value is the largest in its neighbourhood and larger than the threshold
-    mask = (x_reshaped - max_pooled + th) > 0
-    out = (x_reshaped * mask.float()).reshape(B, C, H, W)
+    mask = ((x_reshaped - max_pooled + th) > 0) & (x_reshaped > th)
+    out = torch.zeros_like(x_reshaped)
+    out[mask] = x_reshaped[mask]
 
-    return out
+    return out.reshape(B, C, H, W)
 
 
 def harris(x: torch.Tensor, sigma_d: float, sigma_i: float, th: float = 0):
@@ -94,7 +95,8 @@ def harris(x: torch.Tensor, sigma_d: float, sigma_i: float, th: float = 0):
     """
     harris_mat = harris_response(x, sigma_d=sigma_d, sigma_i=sigma_i)
     # To get coordinates of the responses, you can use torch.nonzero function
-    out = torch.nonzero(harris_mat > th)
+    nmsd = nms2d(harris_mat, th)
+    out = torch.nonzero(nmsd)
     return out
 
 
@@ -113,7 +115,7 @@ def create_scalespace(x: torch.Tensor, n_levels: int, sigma_step: float):
     """
 
     image_pyramid = []
-    sigmas = [1.1]
+    sigmas = [1.]
 
     for level in range(0, n_levels):
         smoothed_image = gaussian_filter2d(x, sigma=sigmas[-1])
@@ -122,7 +124,7 @@ def create_scalespace(x: torch.Tensor, n_levels: int, sigma_step: float):
 
     image_pyramid = torch.stack(image_pyramid, dim=2)  # Stack along the third dimension to create the pyramid tensor
 
-    return image_pyramid, sigmas
+    return image_pyramid, sigmas[:-1]
 
 
 def nms3d(x: torch.Tensor, th: float = 0):
@@ -140,9 +142,10 @@ def nms3d(x: torch.Tensor, th: float = 0):
     max_pooled = F.max_pool3d(x_reshaped, kernel_size=3, stride=1, padding=1)
     mask = (x_reshaped - max_pooled + th) > 0
 
-    out = (x_reshaped * mask.float()).reshape(B, C, D, H, W)
+    out = torch.zeros_like(x_reshaped)
+    out[mask] = x_reshaped[mask]
 
-    return out
+    return out.reshape(B, C, D, H, W)
 
 
 def scalespace_harris_response(x: torch.Tensor,
@@ -162,8 +165,8 @@ def scalespace_harris_response(x: torch.Tensor,
     response_list = []
     for scale_level in range(n_levels):
         response_list.append(harris_response(scalespace[:, :, scale_level, :, :],
-                                             sigma_d=sigmas[scale_level],
-                                             sigma_i=sigmas[scale_level]).unsqueeze(2))
+                                             sigma_d=1e-2,
+                                             sigma_i=1e-2).unsqueeze(2))
     out = torch.cat(response_list, dim=2)
     return out
 
@@ -183,9 +186,13 @@ def scalespace_harris(x: torch.Tensor,
       - Input: :math:`(B, C, H, W)`
       - Output: :math:`(N, 5)`, where N - total number of maxima and 5 is (b,c,d,h,w) coordinates
     """
+    response = scalespace_harris_response(x=x,
+                                          n_levels=n_levels,
+                                          sigma_step=sigma_step)
+    nmsed = nms3d(response.reshape(response.size(2), 1, 1, *response.shape[-2:]), th)
     # To get coordinates of the responses, you can use torch.nonzero function
+    loc = torch.nonzero(nmsed)
     # Don't forget to convert scale index to scale value with use of sigma
-    out = torch.nonzero(scalespace_harris_response(x=x,
-                                                   n_levels=n_levels,
-                                                   sigma_step=sigma_step) > th)
+    loc[:, 2] = 1 * (sigma_step ** loc[:, 2])
+    out = loc
     return out

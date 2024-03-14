@@ -48,7 +48,7 @@ def filter2d(x: torch.Tensor, kernel: torch.Tensor) -> torch.Tensor:
     b, c, h, w = x.shape
     kernel = kernel.flip((-2, -1)).unsqueeze(0).unsqueeze(0)
     # Apply convolution with padding to keep the output size the same
-    x_pad = F.pad(x, (kernel.shape[-1] // 2,) * 4, mode='replicate')
+    x_pad = F.pad(x, (kernel.shape[-1] // 2,) * 2 + (kernel.shape[-2] // 2,) * 2, mode='replicate')
     output = F.conv2d(x_pad, kernel.repeat(c,1,1,1), groups=c)
 
     return output
