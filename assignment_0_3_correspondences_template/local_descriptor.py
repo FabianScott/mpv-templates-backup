@@ -20,8 +20,16 @@ def affine_from_location(b_ch_d_y_x: torch.Tensor)-> Tuple[torch.Tensor, torch.T
         - Output: :math:`(B, 3, 3)`, :math:`(B, 1)`
 
     """
+
     A = torch.zeros(b_ch_d_y_x.size(0), 3, 3)
+    A[:, 0, 0] = b_ch_d_y_x[:, 2]
+    A[:, 1, 1] = b_ch_d_y_x[:, 2]
+    A[:, 0, 2] = b_ch_d_y_x[:, 4]
+    A[:, 1, 2] = b_ch_d_y_x[:, 3]
+    A[:, 2, 2] = 1
+
     img_idxs = torch.zeros(b_ch_d_y_x.size(0), 1).long()
+    img_idxs[:, 0] = b_ch_d_y_x[:, 0]
     return A, img_idxs
 
 
@@ -37,9 +45,16 @@ def affine_from_location_and_orientation(b_ch_d_y_x: torch.Tensor,
         - Output: :math:`(B, 3, 3)`, :math:`(B, 1)`
 
     """
-    A = torch.zeros(b_ch_d_y_x.size(0), 3, 3)
-    img_idxs = torch.zeros(b_ch_d_y_x.size(0), 1).long()
-    return A, img_idxs
+    A, img_idxs = affine_from_location(b_ch_d_y_x)
+    rotational_mat = torch.zeros_like(A)
+    rotational_mat[:, 0, 0] = torch.cos(ori)
+    rotational_mat[:, 1, 1] = torch.cos(ori)
+    rotational_mat[:, 0, 1] = torch.sin(ori)
+    rotational_mat[:, 1, 0] = -torch.sin(ori)
+    rotational_mat[:, 2, 2] = 1
+    # A = torch.zeros(b_ch_d_y_x.size(0), 3, 3)
+    # img_idxs = torch.zeros(b_ch_d_y_x.size(0), 1).long()
+    return A @ rotational_mat, img_idxs
 
 
 def affine_from_location_and_orientation_and_affshape(b_ch_d_y_x: torch.Tensor,
@@ -55,8 +70,14 @@ def affine_from_location_and_orientation_and_affshape(b_ch_d_y_x: torch.Tensor,
         - Output: :math:`(B, 3, 3)`, :math:`(B, 1)`
 
     """
-    A = torch.zeros(b_ch_d_y_x.size(0), 3, 3)
-    img_idxs = torch.zeros(b_ch_d_y_x.size(0), 1).long()
+    A, img_idxs = affine_from_location_and_orientation(b_ch_d_y_x, ori)
+    C = torch.zeros(A.size(0), 2, 2)
+    C[:, :2, 0] = aff_shape[:2]
+    C[:, :2, 1] = aff_shape[1:]
+    inv_sqrt_C = torch.linalg.inv(torch.linalg.sqrtm(C))
+    # Compute determinant of inverse square root of C
+    det_sqrt_inv_C = torch.det(inv_sqrt_C)
+    A[:, :2, :2] = torch.linalg.inv(inv_sqrt_C * torch.sqrt(det_sqrt_inv_C))
     return A, img_idxs
 
 

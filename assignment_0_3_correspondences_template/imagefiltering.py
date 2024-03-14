@@ -1,3 +1,5 @@
+from copy import copy, deepcopy
+
 import numpy as np
 import math
 import torch
@@ -161,26 +163,24 @@ def extract_affine_patches(input: torch.Tensor,
     # I would love to know what goes wrong here??
     assert input.size(0) > 0
     b, ch, h, w = input.size()
+    A = deepcopy(A)
     num_patches = A.size(0)
-    # A[:, :2, :2] *= ext
-    center = A[:, :2, 2]
+    # Multiply by the extent of the basis vectors
+    A[:, :2, :2] = A[:, :2, :2] * ext
+    centers = A[:, :2, 2]
     # Generate coordinates for the output patches
     linspace = torch.linspace(-1, 1, PS)
     grid_y, grid_x, = torch.meshgrid(linspace,  linspace)
     grid = torch.stack([grid_x, grid_y, torch.ones_like(grid_x)], dim=-1).repeat(num_patches, 1, 1, 1)  # (N, PS, PS, 3)
 
-    # transformed_grid = []
-    # for a in A:
-    #     for g in grid:
-    #         transformed_grid.append(g@(a.transpose(-1, -2)))    # Apply transformation
-    # transformed_grid = torch.stack(transformed_grid, dim=0)
     transformed_grid = []
     for g, a in zip(grid, A):
+        # transformed_grid.append(g @ a.transpose(-1, -2))
         transformed_grid.append(g @ a.transpose(-1, -2))
     transformed_grid = torch.stack(transformed_grid, dim=0)
 
-    transformed_grid[..., 0] = (transformed_grid[..., 0]/transformed_grid[..., 2])/w
-    transformed_grid[..., 1] = (transformed_grid[..., 1]/transformed_grid[..., 2])/h
+    transformed_grid[..., 0] = torch.div(transformed_grid[..., 0], transformed_grid[..., 2] * w)
+    transformed_grid[..., 1] = torch.div(transformed_grid[..., 1], transformed_grid[..., 2] * h)
     imgs = input[img_idxs].squeeze(1)   # Why is there an extra dimension when indexing?
 
     patches = F.grid_sample(imgs, transformed_grid[..., :2], align_corners=True)
