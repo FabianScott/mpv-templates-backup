@@ -5,11 +5,11 @@ import torch.nn as nn
 import torch.nn.functional as F
 import typing
 from typing import Tuple
-from imagefiltering import * 
+from imagefiltering import *
 from local_detector import *
 
 
-def affine_from_location(b_ch_d_y_x: torch.Tensor)-> Tuple[torch.Tensor, torch.Tensor]:
+def affine_from_location(b_ch_d_y_x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
     r"""Computes transformation matrix A which transforms point in homogeneous coordinates from canonical coordinate system into image
     from keypoint location (output of scalespace_harris or scalespace_hessian)
     Return:
@@ -34,7 +34,7 @@ def affine_from_location(b_ch_d_y_x: torch.Tensor)-> Tuple[torch.Tensor, torch.T
 
 
 def affine_from_location_and_orientation(b_ch_d_y_x: torch.Tensor,
-                                         ori: torch.Tensor)-> Tuple[torch.Tensor, torch.Tensor]:
+                                         ori: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
     r"""Computes transformation matrix A which transforms point in homogeneous coordinates from canonical coordinate system into image
     from keypoint location (output of scalespace_harris or scalespace_hessian). Ori - orientation angle in radians
     Return:
@@ -59,7 +59,7 @@ def affine_from_location_and_orientation(b_ch_d_y_x: torch.Tensor,
 
 def affine_from_location_and_orientation_and_affshape(b_ch_d_y_x: torch.Tensor,
                                                       ori: torch.Tensor,
-                                                      aff_shape: torch.Tensor)-> Tuple[torch.Tensor, torch.Tensor]:
+                                                      aff_shape: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
     r"""Computes transformation matrix A which transforms point in homogeneous coordinates from canonical coordinate system into image
     from keypoint location (output of scalespace_harris or scalespace_hessian)
     Return:
@@ -99,6 +99,7 @@ def estimate_patch_dominant_orientation(x: torch.Tensor, num_angular_bins: int =
     index = out.hist.argmax()
     return out.bin_edges[index]
 
+
 def estimate_patch_affine_shape(x: torch.Tensor):
     """Function, which estimates the patch affine shape by second moment matrix. Returns ellipse parameters: a, b, c
     Args:
@@ -111,13 +112,10 @@ def estimate_patch_affine_shape(x: torch.Tensor):
     return out
 
 
-
-    
-
 def calc_sift_descriptor(input: torch.Tensor,
-                  num_ang_bins: int = 8,
-                  num_spatial_bins: int = 4,
-                  clipval: float = 0.2) -> torch.Tensor:
+                         num_ang_bins: int = 8,
+                         num_spatial_bins: int = 4,
+                         clipval: float = 0.2) -> torch.Tensor:
     '''    
     Args:
         x: torch.Tensor (B, 1, PS, PS)
@@ -134,8 +132,8 @@ def calc_sift_descriptor(input: torch.Tensor,
     '''
     temp = spatial_gradient_first_order(input, sigma=1.)
     Ix, Iy = temp[:, :, 0], temp[:, :, 1]
-    magnitude = torch.sqrt(Ix ** 2 + Iy ** 2).squeeze(1)
-    orientation = torch.atan2(Iy, Ix)
+    magnitude = torch.sqrt(Ix ** 2 + Iy ** 2 + 1e-10).squeeze(1)
+    orientation = torch.atan2(Iy, Ix + 1e-10)  # + 2.0 * torch.pi
 
     # Compute spatial bins
     patch_size = input.shape[-1]
@@ -159,11 +157,13 @@ def calc_sift_descriptor(input: torch.Tensor,
                     # Compute gradient orientation bin
                     bin_index = int(orientation[..., x, y] / (2 * math.pi / num_ang_bins))
                     # Weight magnitude by distance to subpatch center
-                    weight = 1 - (math.sqrt((x - patch_size / 2) ** 2 + (y - patch_size / 2) ** 2) / (patch_size / 2))
+                    x_center = torch.tensor([x_max - x])
+                    y_center = torch.tensor([y_max - y])
+                    weight = gaussian1d(x_center - x, sigma=1) * gaussian1d(y_center - y, sigma=1)
+                    # weight = 1 - (math.sqrt((x - patch_size / 2) ** 2 + (y - patch_size / 2) ** 2) / (patch_size / 2))
                     # Accumulate magnitude into descriptor
-                    descriptor[..., i * num_spatial_bins * num_ang_bins + j * num_ang_bins + bin_index] += magnitude[
-                                                                                                               ..., x, y] * weight
-
+                    descriptor[:, i * num_spatial_bins * num_ang_bins + j * num_ang_bins + bin_index] += magnitude[
+                                                                                                             ..., x, y] * weight
     # L2-normalize descriptor
     descriptor = F.normalize(descriptor, p=2, dim=1)
     # Clip descriptor values
@@ -190,4 +190,11 @@ def photonorm(x: torch.Tensor):
     return out
 
 
+if __name__ == '__main__':
+    patch = torch.zeros(1, 1, 32, 32)
+    patch[:, :, 16:, :] = 1.0
 
+    num_ang_bins = 8
+    num_spatial_bins = 4
+
+    desc = calc_sift_descriptor(patch, num_ang_bins, num_spatial_bins)
