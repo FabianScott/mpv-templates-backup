@@ -16,11 +16,11 @@ def hdist(H: torch.Tensor, pts_matches: torch.Tensor):
         - Input :math:`(3, 3)`, :math:`(B, 4)`
         - Output: :math:`(B, 1)`
     '''
-    dist = torch.zeros(pts_matches.size(0),1)
+    dist = torch.zeros(pts_matches.size(0), 1)
     return dist
 
 
-def sample(pts_matches: torch.Tensor, num: int=4):
+def sample(pts_matches: torch.Tensor, num: int = 4):
     '''Function, which draws random sample from pts_matches
     
     Return:
@@ -34,9 +34,8 @@ def sample(pts_matches: torch.Tensor, num: int=4):
         - Input :math:`(B, 4)`
         - Output: :math:`(num, 4)`
     '''
-    sample = torch.zeros(num,4)
+    sample = torch.zeros(num, 4)
     return sample
-
 
 
 def getH(min_sample):
@@ -52,15 +51,14 @@ def getH(min_sample):
         - Output: :math:`(3, 3)`
     '''
     H_norm = torch.eye(3)
-    return  H_norm
+    return H_norm
 
 
-def nsamples(n_inl:int , num_tc:int , sample_size:int , conf: float):
+def nsamples(n_inl: int, num_tc: int, sample_size: int, conf: float):
     return 0
-    
 
 
-def ransac_h(pts_matches: torch.Tensor, th: float = 4.0, conf: float = 0.99, max_iter:int = 1000):
+def ransac_h(pts_matches: torch.Tensor, th: float = 4.0, conf: float = 0.99, max_iter: int = 1000):
     '''Function, which robustly estimates homography from noisy correspondences
     
     Return:
@@ -77,9 +75,5 @@ def ransac_h(pts_matches: torch.Tensor, th: float = 4.0, conf: float = 0.99, max
         - Output: :math:`(3, 3)`,   :math:`(B, 1)`
     '''
     Hbest = torch.eye(3)
-    inl = torch.zeros(pts_matches.size(0),1) > 0
+    inl = torch.zeros(pts_matches.size(0), 1) > 0
     return Hbest, inl
-
-
-
-
