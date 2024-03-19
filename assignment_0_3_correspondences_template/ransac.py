@@ -17,6 +17,7 @@ def hdist(H: torch.Tensor, pts_matches: torch.Tensor):
         - Output: :math:`(B, 1)`
     '''
     dist = torch.zeros(pts_matches.size(0), 1)
+
     return dist
 
 
