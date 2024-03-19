@@ -164,9 +164,7 @@ def scalespace_harris_response(x: torch.Tensor,
     scalespace, sigmas = create_scalespace(x, n_levels, sigma_step)
     response_list = []
     for scale_level in range(n_levels):
-        response_list.append(harris_response(scalespace[:, :, scale_level, :, :],
-                                             sigma_d=1e-2,
-                                             sigma_i=1e-2).unsqueeze(2))
+        response_list.append((harris_response(scalespace[:, :, scale_level, :, :],   sigma_d=1.3,   sigma_i=1.3) * sigmas[scale_level]**4).unsqueeze(2))
     out = torch.cat(response_list, dim=2)
     return out
 
@@ -189,7 +187,7 @@ def scalespace_harris(x: torch.Tensor,
     response = scalespace_harris_response(x=x,
                                           n_levels=n_levels,
                                           sigma_step=sigma_step)
-    nmsed = nms3d(response.reshape(response.size(2), 1, 1, *response.shape[-2:]), th)
+    nmsed = nms3d(response, th)
     # To get coordinates of the responses, you can use torch.nonzero function
     loc = torch.nonzero(nmsed)
     # Don't forget to convert scale index to scale value with use of sigma
