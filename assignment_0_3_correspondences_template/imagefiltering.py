@@ -167,7 +167,6 @@ def extract_affine_patches(input: torch.Tensor,
     num_patches = A.size(0)
     # Multiply by the extent of the basis vectors
     A[:, :2, :2] = A[:, :2, :2] * ext
-    centers = A[:, :2, 2]
     # Generate coordinates for the output patches
     linspace = torch.linspace(-1, 1, PS)
     grid_y, grid_x, = torch.meshgrid(linspace,  linspace)
@@ -175,12 +174,11 @@ def extract_affine_patches(input: torch.Tensor,
 
     transformed_grid = []
     for g, a in zip(grid, A):
-        # transformed_grid.append(g @ a.transpose(-1, -2))
         transformed_grid.append(g @ a.transpose(-1, -2))
     transformed_grid = torch.stack(transformed_grid, dim=0)
-
-    transformed_grid[..., 0] = torch.div(transformed_grid[..., 0], transformed_grid[..., 2] * w)
-    transformed_grid[..., 1] = torch.div(transformed_grid[..., 1], transformed_grid[..., 2] * h)
+    # Scale to -1:1
+    transformed_grid[..., 0] = torch.div(transformed_grid[..., 0], transformed_grid[..., 2] * w) * 2 - 1
+    transformed_grid[..., 1] = torch.div(transformed_grid[..., 1], transformed_grid[..., 2] * h) * 2 - 1
     imgs = input[img_idxs].squeeze(1)   # Why is there an extra dimension when indexing?
 
     patches = F.grid_sample(imgs, transformed_grid[..., :2], align_corners=True)
