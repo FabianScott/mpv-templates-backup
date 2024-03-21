@@ -57,6 +57,13 @@ def affine_from_location_and_orientation(b_ch_d_y_x: torch.Tensor,
     return A @ rotational_mat, img_idxs
 
 
+def sqrtm(mat):
+    U, S_vals, V = torch.svd(mat)
+    S_sqrt = torch.zeros_like(mat)
+    S_sqrt[:, torch.arange(2), torch.arange(2)] = S_vals ** .5
+    return S_sqrt
+
+
 def affine_from_location_and_orientation_and_affshape(b_ch_d_y_x: torch.Tensor,
                                                       ori: torch.Tensor,
                                                       aff_shape: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -71,13 +78,14 @@ def affine_from_location_and_orientation_and_affshape(b_ch_d_y_x: torch.Tensor,
 
     """
     A, img_idxs = affine_from_location_and_orientation(b_ch_d_y_x, ori)
-    C = torch.zeros(A.size(0), 2, 2)
-    C[:, :2, 0] = aff_shape[:, 2]
-    C[:, :2, 1] = aff_shape[:, 1:]
-    inv_sqrt_C = torch.linalg.inv(torch.linalg.sqrtm(C))
-    # Compute determinant of inverse square root of C
+    a, b, c = aff_shape
+    C = torch.tensor([[a, c], [c, b]])
+
+    sqrt_C = sqrtm(C)
+    inv_sqrt_C = torch.linalg.inv(sqrt_C)
     det_sqrt_inv_C = torch.det(inv_sqrt_C)
-    A[:, :2, :2] = torch.linalg.inv(inv_sqrt_C * torch.sqrt(det_sqrt_inv_C))
+    sqrt_det = torch.sqrt(det_sqrt_inv_C)
+    A[:, :2, :2] = torch.linalg.inv(inv_sqrt_C/sqrt_det)
     return A, img_idxs
 
 
