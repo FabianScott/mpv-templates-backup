@@ -68,14 +68,20 @@ def nms2d(x: torch.Tensor, th: float = 0):
     """
     B, C, H, W = x.size()
 
-    x_reshaped = x.reshape(B * C, 1, H, W)
-    max_pooled = F.max_pool2d(x_reshaped, kernel_size=3, stride=1, padding=1)
-    # Where the value is the largest in its neighbourhood and larger than the threshold
-    mask = ((x_reshaped - max_pooled) == 0.) & (x_reshaped > th)
-    out = torch.zeros_like(x_reshaped)
-    out[mask] = x_reshaped[mask]
+    kernel = torch.eye(9)
+    kernel[4, 4] = 0
+    kernel = kernel.view(9, 1, 3, 3).repeat(C, 1, 1, 1)
 
-    return out.reshape(B, C, H, W)
+    non_center = F.conv2d(x,
+                          kernel,
+                          stride=1,
+                          groups=C,
+                          padding=1).view(B, C, -1, H, W)
+    max_non_center = torch.max(non_center, dim=2)[0]
+    mask = (x > max_non_center) & (x > th)
+    out = torch.zeros_like(x)
+    out[mask] = x[mask]
+    return out
 
 
 def harris(x: torch.Tensor, sigma_d: float, sigma_i: float, th: float = 0):
@@ -138,14 +144,22 @@ def nms3d(x: torch.Tensor, th: float = 0):
     """
     B, C, D, H, W = x.size()
 
-    x_reshaped = x.reshape(B * C, 1, D, H, W)  # Combine the channels in order to make it spatial
-    max_pooled = F.max_pool3d(x_reshaped, kernel_size=3, stride=1, padding=1)
-    mask = ((x_reshaped - max_pooled) == 0.) & (x_reshaped > th)
+    kernel = torch.eye(27)
+    kernel[13, 13] = 0
+    kernel = kernel.view(27, 1, 3, 3, 3).repeat(C, 1, 1, 1, 1)
 
-    out = torch.zeros_like(x_reshaped)
-    out[mask] = x_reshaped[mask]
+    # x_pad = F.pad(x, (1,) * 4, mode='replicate')
+    non_center = F.conv3d(x,
+                          kernel,
+                          stride=1,
+                          groups=C,
+                          padding=1).view(B, C, D, -1, H, W)
+    max_non_center = torch.max(non_center, dim=3)[0]
+    mask = (x > max_non_center) & (x > th)
+    out = torch.zeros_like(x)
+    out[mask] = x[mask]
 
-    return out.reshape(B, C, D, H, W)
+    return out
 
 
 def scalespace_harris_response(x: torch.Tensor,
@@ -164,7 +178,8 @@ def scalespace_harris_response(x: torch.Tensor,
     scalespace, sigmas = create_scalespace(x, n_levels, sigma_step)
     response_list = []
     for scale_level in range(n_levels):
-        response_list.append((harris_response(scalespace[:, :, scale_level, :, :],   sigma_d=1.3,   sigma_i=1.3) * sigmas[scale_level]**4).unsqueeze(2))
+        response_list.append((harris_response(scalespace[:, :, scale_level, :, :], sigma_d=1.3, sigma_i=1.3) * sigmas[
+            scale_level] ** 4).unsqueeze(2))
     out = torch.cat(response_list, dim=2)
     return out
 
