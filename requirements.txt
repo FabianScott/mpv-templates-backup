@@ -1,0 +1,4 @@
+kornia
+matplotlib
+numpy
+opencv-python

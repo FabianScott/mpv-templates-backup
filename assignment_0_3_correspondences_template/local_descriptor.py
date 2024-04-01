@@ -78,8 +78,11 @@ def affine_from_location_and_orientation_and_affshape(b_ch_d_y_x: torch.Tensor,
 
     """
     A, img_idxs = affine_from_location_and_orientation(b_ch_d_y_x, ori)
-    a, b, c = aff_shape
-    C = torch.tensor([[a, c], [c, b]])
+
+    C = torch.zeros((A.size(0), 2, 2))
+    for i, row in enumerate(aff_shape):
+        a, b, c = row
+        C[i, :, :] = torch.tensor([[a, c], [c, b]])
 
     sqrt_C = sqrtm(C)
     inv_sqrt_C = torch.linalg.inv(sqrt_C)
@@ -158,6 +161,8 @@ def calc_sift_descriptor(input: torch.Tensor,
             x_max = int((i + 1) * bin_size)
             y_min = int(j * bin_size)
             y_max = int((j + 1) * bin_size)
+            x_center = torch.tensor([(x_max - x_min)/2])
+            y_center = torch.tensor([(y_max - y_min)/2])
 
             # Iterate over pixels in spatial bin
             for x in range(x_min, x_max):
@@ -165,13 +170,9 @@ def calc_sift_descriptor(input: torch.Tensor,
                     # Compute gradient orientation bin
                     bin_index = int(orientation[..., x, y] / (2 * math.pi / num_ang_bins))
                     # Weight magnitude by distance to subpatch center
-                    x_center = torch.tensor([x_max - x])
-                    y_center = torch.tensor([y_max - y])
                     weight = gaussian1d(x_center - x, sigma=1) * gaussian1d(y_center - y, sigma=1)
-                    # weight = 1 - (math.sqrt((x - patch_size / 2) ** 2 + (y - patch_size / 2) ** 2) / (patch_size / 2))
                     # Accumulate magnitude into descriptor
-                    descriptor[:, i * num_spatial_bins * num_ang_bins + j * num_ang_bins + bin_index] += magnitude[
-                                                                                                             ..., x, y] * weight
+                    descriptor[:, i * num_spatial_bins * num_ang_bins + j * num_ang_bins + bin_index] += magnitude[..., x, y] * weight
     # L2-normalize descriptor
     descriptor = F.normalize(descriptor, p=2, dim=1)
     # Clip descriptor values
