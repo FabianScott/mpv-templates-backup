@@ -20,10 +20,10 @@ def hdist(H: torch.Tensor, pts_matches: torch.Tensor):
     # The original coords
     vec = torch.concat((pts_matches[:, :2], torch.ones((B, 1))), dim=1)
     # The projected coords
-    vec_ = pts_matches[:, 2:]
-    H_vec = H @ vec
+    vec_ = pts_matches[:, 2:].T
+    H_vec = H @ vec.T
 
-    dist = torch.cdist(vec_, H_vec)
+    dist = torch.square(vec_.T - H_vec.T[:, :2]).sum(dim=1)
 
     return dist
 
@@ -66,17 +66,11 @@ def getH(min_sample):
         C[2*i] = torch.tensor([-x, -y, -1, 0, 0, 0, x * xp, y * xp, xp])
         C[2*i + 1] = torch.tensor([0, 0, 0, -x, -y, -1, x * yp, y * yp, yp])
 
-    # Compute the null space of C
-    _, _, V = torch.svd(C)
-    H = V[-1].reshape(3, 3)
-    H = H/H[:, -1,-1]
-    # Check if some triplets lie close to a line
-    if torch.matrix_rank(C) < 8:
+    if torch.linalg.matrix_rank(C) < 8:
         return None
-    else:
-        return H
-
-    H_norm = torch.eye(3)
+    _, _, V = torch.svd(C)
+    H = V[:, 8].reshape(3, 3)
+    H_norm = H/(H[-1,-1] + 1e-10)
     return H_norm
 
 
@@ -88,7 +82,7 @@ def ransac_h(pts_matches: torch.Tensor, th: float = 4.0, conf: float = 0.99, max
     '''Function, which robustly estimates homography from noisy correspondences
     
     Return:
-        torch.Tensor: per-correspondence Eucledian squared error
+        torch.Tensor: per-correspondence Euclidian squared error
 
     Args:
         pts_matches: torch.Tensor: 2d tensor
