@@ -154,7 +154,7 @@ def calc_sift_descriptor(input: torch.Tensor,
     descriptor = torch.zeros((B, num_ang_bins, num_spatial_bins, num_spatial_bins))
     gauss_ = gaussian1d(bin_size/2 - torch.arange(-bin_size/2, bin_size/2)+0.5, sigma=1e2)
     weight_mat = torch.outer(gauss_, gauss_).squeeze(0).repeat(B, 1, 1)
-
+    
     # Iterate over spatial bins
     for i in range(num_spatial_bins):
         for j in range(num_spatial_bins):

@@ -69,7 +69,7 @@ def getH(min_sample):
     if torch.linalg.matrix_rank(C) < 8:
         return None
     _, _, V = torch.svd(C)
-    H = V[:, 8].reshape(3, 3)
+    H = V[:, -1].reshape(3, 3)
     H_norm = H/(H[-1,-1] + 1e-10)
     return H_norm
 
