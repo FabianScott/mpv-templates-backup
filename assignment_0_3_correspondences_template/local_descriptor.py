@@ -105,8 +105,8 @@ def estimate_patch_dominant_orientation(x: torch.Tensor, num_angular_bins: int =
     """
     temp = spatial_gradient_first_order(x=x, sigma=1)
     Ix, Iy = temp[:, :, 0], temp[:, :, 1]
-    angle = torch.atan2(Iy, Ix)
-    out = torch.histogram(angle, bins=num_angular_bins)
+    angle = torch.atan2(Iy, Ix + 1e-10)
+    out = torch.histogram(angle % torch.pi, bins=num_angular_bins)
     index = out.hist.argmax()
     return out.bin_edges[index]
 
@@ -119,8 +119,19 @@ def estimate_patch_affine_shape(x: torch.Tensor):
     Returns:
         ell: (torch.Tensor) in radians shape [Bx3]
     """
-    out = torch.zeros(x.size(0), 3)
-    return out
+    mean_x = torch.mean(x, dim=(2, 3), keepdim=True)
+    centered_x = x - mean_x
+    second_moment = torch.matmul(centered_x, centered_x.transpose(2, 3)) / (x.size(2) * x.size(3))
+
+    eigenvalues = torch.real(torch.linalg.eigvals(second_moment))
+
+    a = torch.sqrt(eigenvalues[..., 0])
+    b = torch.sqrt(eigenvalues[..., 1])
+    c = torch.sqrt(eigenvalues[..., 2])
+
+    ell = torch.stack((a, b, c), dim=1)
+
+    return torch.real(ell)
 
 
 def calc_sift_descriptor(input: torch.Tensor,
@@ -154,7 +165,7 @@ def calc_sift_descriptor(input: torch.Tensor,
     descriptor = torch.zeros((B, num_ang_bins, num_spatial_bins, num_spatial_bins))
     gauss_ = gaussian1d(bin_size/2 - torch.arange(-bin_size/2, bin_size/2)+0.5, sigma=1e2)
     weight_mat = torch.outer(gauss_, gauss_).squeeze(0).repeat(B, 1, 1)
-    
+
     # Iterate over spatial bins
     for i in range(num_spatial_bins):
         for j in range(num_spatial_bins):

@@ -9,7 +9,7 @@ def hdist(H: torch.Tensor, pts_matches: torch.Tensor):
     '''Function, calculates one-way reprojection error
     
     Return:
-        torch.Tensor: per-correspondence Eucledian squared error
+        torch.Tensor: per-correspondence Euclidian squared error
 
 
     Shape:
@@ -20,10 +20,10 @@ def hdist(H: torch.Tensor, pts_matches: torch.Tensor):
     # The original coords
     vec = torch.concat((pts_matches[:, :2], torch.ones((B, 1))), dim=1)
     # The projected coords
-    vec_ = pts_matches[:, 2:].T
+    vec_ = pts_matches[:, 2:]
     H_vec = H @ vec.T
 
-    dist = torch.square(vec_.T - H_vec.T[:, :2]).sum(dim=1)
+    dist = torch.square(vec_ - H_vec.T[:, :2]).sum(dim=1)
 
     return dist
 
