@@ -2,6 +2,7 @@ import numpy as np, time, datetime, scipy.io, os, pdb, pickle
 from scipy.sparse import csr_matrix
 import PIL.Image
 from utils import get_pts_in_box, draw_bbox, vis_results, get_A_matrix_from_geom, get_query_data, get_shortlist_data
+from tqdm import tqdm
 
 def create_db(image_visual_words, num_visual_words, idf):
     """
@@ -15,13 +16,27 @@ def create_db(image_visual_words, num_visual_words, idf):
     return -> 
     db: sparse matrix representing the inverted file 
     """
+    row_indices = []
+    col_indices = []
+    data = []
 
-    # create DB here - your code
-    # ........
-    # ........
-    # ........
-    # ........
-    # ........
+    # Iterate through each image and populate the inverted file
+    for i, words in enumerate(image_visual_words):
+        # Count occurrence of each visual word in the image
+        word_counts = np.bincount(words, minlength=num_visual_words)
+        weighted_counts = word_counts * idf
+        # Calculate L2 norm
+        l2_norm = np.linalg.norm(weighted_counts)
+        # Normalize the counts
+        normalized_counts = weighted_counts / l2_norm if l2_norm != 0 else weighted_counts
+        # Store non-zero entries for the CSR matrix
+        non_zero_indices = np.nonzero(normalized_counts)[0]
+        row_indices.extend(non_zero_indices)
+        col_indices.extend([i] * len(non_zero_indices))
+        data.extend(normalized_counts[non_zero_indices])
+
+    # Construct CSR matrix directly
+    db = csr_matrix((data, (row_indices, col_indices)), shape=(num_visual_words, len(image_visual_words)), dtype=np.float32)
 
     return db
 
@@ -36,16 +51,15 @@ def get_idf(image_visual_words, num_visual_words):
     idf: array with idf weights per visual word
     """
 
-    # calculate idf here - your code
-    # ........
-    # ........
-    # ........
-    # ........
-    # ........
+    df = np.zeros(num_visual_words)
+    idf = np.zeros(num_visual_words)
+
+    for words in image_visual_words:
+        df[words] += 1
+
+    idf[df > 0] = np.log(len(image_visual_words)/df[df>0])
 
     return idf
-
-
 
 def retrieve(db, query_visual_words, idf):
     """
@@ -59,15 +73,15 @@ def retrieve(db, query_visual_words, idf):
     ranking: sorted list of image ids based on similarities to the query
     sim: sorted list of similarities
     """
+    # Create the one-hot vector
+    query_vector = np.bincount(query_visual_words, minlength=db.shape[0])
+    # Weight by idf and normalise
+    query_vector = query_vector * idf
+    query_vector = query_vector / np.linalg.norm(query_vector)
+    sim = query_vector @ db
+    ranking = np.argsort(sim)[::-1]
 
-    # serch here - your code
-    # ........
-    # ........
-    # ........
-    # ........
-    # ........
-
-    return ranking, sim
+    return ranking, sim[ranking]
 
 
 def get_tentative_correspondences(query_visual_words, shortlist_visual_words):
@@ -165,7 +179,7 @@ def main():
     
     include_lab_assignment_2 = False # set to True for the second part - spatial verif.
 
-    with open('mpv_lab_retrieval_data.pkl', 'rb') as handle:
+    with open('data/mpv_lab_retrieval_data.pkl', 'rb') as handle:
         p = pickle.load(handle)     
 
     visual_words = p['visual_words']
@@ -184,7 +198,7 @@ def main():
     db = create_db(visual_words, num_visual_words, idf)
     print("DB created in {:.5}s".format(time.time()-t))
 
-    q_id = 367 # pick a query     
+    q_id = 347 # pick a query
     t = time.time()
     ranked_img_ids, scores = retrieve(db, visual_words[q_id], idf)
     print("query performed in {:.3f}s".format(time.time() - t))
