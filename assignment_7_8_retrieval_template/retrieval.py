@@ -2,7 +2,7 @@ import numpy as np, time, datetime, scipy.io, os, pdb, pickle
 from scipy.sparse import csr_matrix
 import PIL.Image
 from utils import get_pts_in_box, draw_bbox, vis_results, get_A_matrix_from_geom, get_query_data, get_shortlist_data
-from tqdm import tqdm
+
 
 def create_db(image_visual_words, num_visual_words, idf):
     """
@@ -36,7 +36,8 @@ def create_db(image_visual_words, num_visual_words, idf):
         data.extend(normalized_counts[non_zero_indices])
 
     # Construct CSR matrix directly
-    db = csr_matrix((data, (row_indices, col_indices)), shape=(num_visual_words, len(image_visual_words)), dtype=np.float32)
+    db = csr_matrix((data, (row_indices, col_indices)), shape=(num_visual_words, len(image_visual_words)),
+                    dtype=np.float32)
 
     return db
 
@@ -57,9 +58,10 @@ def get_idf(image_visual_words, num_visual_words):
     for words in image_visual_words:
         df[words] += 1
 
-    idf[df > 0] = np.log(len(image_visual_words)/df[df>0])
+    idf[df > 0] = np.log(len(image_visual_words) / df[df > 0])
 
     return idf
+
 
 def retrieve(db, query_visual_words, idf):
     """
@@ -74,7 +76,7 @@ def retrieve(db, query_visual_words, idf):
     sim: sorted list of similarities
     """
     # Create the one-hot vector
-    query_vector = np.bincount(query_visual_words, minlength=db.shape[0])
+    query_vector = np.bincount(query_visual_words.flatten(), minlength=db.shape[0])
     # Weight by idf and normalise
     query_vector = query_vector * idf
     query_vector = query_vector / np.linalg.norm(query_vector)
@@ -94,15 +96,12 @@ def get_tentative_correspondences(query_visual_words, shortlist_visual_words):
 
     correspondences = []
 
-    for i in range(len(candidatelist_visual_words)): # loop over the provided list of DB images
+    for i, q_word in enumerate(query_visual_words):  # loop over the provided list of DB images
 
         corr = []
-        
-        #### append correspondences for image i - your code
-        # ......
-        # ......
-        # ......
-        # ......
+        for j, s_word in enumerate(shortlist_visual_words):
+            if q_word.item() in s_word:
+                corr.append([i, j])
 
         correspondences.append(corr)
 
@@ -123,7 +122,7 @@ def ransac_affine(query_geometry, shortlist_geometry, correspondences, inlier_th
 
     K = len(shortlist_geometry)
     transformations = np.zeros((K, 3, 3))
-    inliers_counts = np.zeros((K, ))
+    inliers_counts = np.zeros((K,))
 
     for k in range(K):
         best_score = 0
@@ -136,16 +135,13 @@ def ransac_affine(query_geometry, shortlist_geometry, correspondences, inlier_th
             q_id = corr[n, 0]
             d_id = corr[n, 1]
 
-            Aq = get_A_matrix_from_geom(query_geometry[q_id]) # shape of local feature from the query
-            Ad = get_A_matrix_from_geom(shortlist_geometry[k][d_id]) # shape of local feature from DB image
+            Aq = get_A_matrix_from_geom(query_geometry[q_id])  # shape of local feature from the query
+            Ad = get_A_matrix_from_geom(shortlist_geometry[k][d_id])  # shape of local feature from DB image
 
-            ### estimate transformation hypothesis A and the number of inliers - your code
-            #
-            # A = .....
-            # ....
-            # ....
-            # number_of_inliers = ....
-            # 
+            A = Ad @ np.linalg.inv(Aq)
+            transformed_query_points = (A[:2, :2] @ query_geometry.T).T + A[:2, 2]
+            distances = np.linalg.norm(transformed_query_points - shortlist_geometry[k], axis=1)
+            number_of_inliers = np.sum(distances < inlier_threshold)
 
             if number_of_inliers > best_score:
                 best_score = number_of_inliers
@@ -157,7 +153,8 @@ def ransac_affine(query_geometry, shortlist_geometry, correspondences, inlier_th
     return transformations, inliers_counts
 
 
-def search_spatial_verification(query_visual_words, query_geometry, candidatelist_visual_words, candidatelist_geometries, inlier_threshold):
+def search_spatial_verification(query_visual_words, query_geometry, candidatelist_visual_words,
+                                candidatelist_geometries, inlier_threshold):
     """
 
     query_visual_words: 1D array with visual words of the query 
@@ -165,47 +162,47 @@ def search_spatial_verification(query_visual_words, query_geometry, candidatelis
     candidatelist_visual_words: list of 1D arrays with visual words of top-ranked images 
     candidatelist_geometry: list of 2D arrays with geometry of top-ranked images
     inlier_threshold: threshold for inliers of the spatial verification
+
+    Returns:
     inlier_counts: 1D array with number of inliers per image
     transformations: 3D array with the transformation per image
     """
-    corrs = get_tentative_correspondences(query_visual_words, candidatelist_visual_words)    
+    corrs = get_tentative_correspondences(query_visual_words, candidatelist_visual_words)
     transformations, inliers_counts = ransac_affine(query_geometry, candidatelist_geometries, corrs, inlier_threshold)
     return inliers_counts, transformations
 
 
-
 ### ========================================================
 def main():
-    
-    include_lab_assignment_2 = False # set to True for the second part - spatial verif.
+    include_lab_assignment_2 = True  # set to True for the second part - spatial verif.
 
     with open('data/mpv_lab_retrieval_data.pkl', 'rb') as handle:
-        p = pickle.load(handle)     
+        p = pickle.load(handle)
 
     visual_words = p['visual_words']
     geometries = p['geometries']
     img_names = p['img_names']
-    img_names = ['imgs/'+x+'.jpg' for x in img_names]
+    img_names = ['imgs/' + x + '.jpg' for x in img_names]
     print(len(img_names))
-    num_visual_words = 50000+1  # for the codebook we used to generate the provided visual words
+    num_visual_words = 50000 + 1  # for the codebook we used to generate the provided visual words
 
     # spatial verification parameters
     shortlist_size = 50
-    inlier_threshold=8
+    inlier_threshold = 8
 
     t = time.time()
     idf = get_idf(visual_words, num_visual_words)
     db = create_db(visual_words, num_visual_words, idf)
-    print("DB created in {:.5}s".format(time.time()-t))
+    print("DB created in {:.5}s".format(time.time() - t))
 
-    q_id = 347 # pick a query
+    q_id = 347  # pick a query
     t = time.time()
     ranked_img_ids, scores = retrieve(db, visual_words[q_id], idf)
     print("query performed in {:.3f}s".format(time.time() - t))
     print(ranked_img_ids[:10], scores[:10])
 
     if include_lab_assignment_2:
-        bbox_xyxy = [350, 200, 700, 600] # pick a bounding box
+        bbox_xyxy = [350, 200, 700, 600]  # pick a bounding box
         query_visual_words_inbox, query_geometry_inbox = get_query_data(visual_words, geometries, q_id, bbox_xyxy)
         t = time.time()
         ranked_img_ids, scores = retrieve(db, query_visual_words_inbox, idf)
@@ -216,7 +213,9 @@ def main():
         shortlist_visual_word, shortlist_geometry = get_shortlist_data(visual_words, geometries, shortlist_ids)
 
         t = time.time()
-        scores_sp, transformations = search_spatial_verification(query_visual_words_inbox, query_geometry_inbox, shortlist_visual_word, shortlist_geometry, inlier_threshold)
+        scores_sp, transformations = search_spatial_verification(query_visual_words_inbox, query_geometry_inbox,
+                                                                 shortlist_visual_word, shortlist_geometry,
+                                                                 inlier_threshold)
         print("spatial verification performed in {:.3f}s".format(time.time() - t))
 
         idxs = np.argsort(-scores_sp)
@@ -229,7 +228,5 @@ def main():
         vis_results(img_names, q_id, bbox_xyxy, top_img_ids, scores_sp, transformations)
 
 
-
 if __name__ == '__main__':
     main()
-
