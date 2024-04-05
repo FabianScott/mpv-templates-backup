@@ -7,7 +7,7 @@ import typing
 from typing import Tuple
 from imagefiltering import *
 from local_detector import *
-
+from tqdm import tqdm
 
 def affine_from_location(b_ch_d_y_x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
     r"""Computes transformation matrix A which transforms point in homogeneous coordinates from canonical coordinate system into image
@@ -105,7 +105,7 @@ def estimate_patch_dominant_orientation(x: torch.Tensor, num_angular_bins: int =
     """
     temp = spatial_gradient_first_order(x=x, sigma=1)
     Ix, Iy = temp[:, :, 0], temp[:, :, 1]
-    angle = torch.atan2(Iy, Ix + 1e-10)
+    angle = torch.atan2(Iy, Ix + 1e-10) + (torch.pi/2)
     out = torch.histogram(angle % torch.pi, bins=num_angular_bins)
     index = out.hist.argmax()
     return out.bin_edges[index]
@@ -123,7 +123,7 @@ def estimate_patch_affine_shape(x: torch.Tensor):
     centered_x = x - mean_x
     second_moment = torch.matmul(centered_x, centered_x.transpose(2, 3)) / (x.size(2) * x.size(3))
 
-    eigenvalues = torch.real(torch.linalg.eigvals(second_moment))
+    eigenvalues = torch.abs(torch.real(torch.linalg.eigvals(second_moment)))
 
     a = torch.sqrt(eigenvalues[..., 0])
     b = torch.sqrt(eigenvalues[..., 1])
@@ -156,18 +156,19 @@ def calc_sift_descriptor(input: torch.Tensor,
     temp = spatial_gradient_first_order(input, sigma=1.)
     Ix, Iy = temp[:, :, 0], temp[:, :, 1]
     magnitude = torch.sqrt(Ix ** 2 + Iy ** 2 + 1e-10).squeeze(1)
-    orientation = torch.atan2(Iy, Ix + 1e-10).squeeze(1)  # + 2.0 * torch.pi
+    orientation = torch.atan2(Iy, Ix + 1e-10).squeeze(1) % 2.0 * torch.pi
 
     # Compute spatial bins
-    bin_size = patch_size / num_spatial_bins
+    bin_size = math.ceil(patch_size / num_spatial_bins)
 
     # Initialize descriptor
     descriptor = torch.zeros((B, num_ang_bins, num_spatial_bins, num_spatial_bins))
-    gauss_ = gaussian1d(bin_size/2 - torch.arange(-bin_size/2, bin_size/2)+0.5, sigma=1e2)
+    descriptor_ = torch.zeros((B, num_ang_bins, num_spatial_bins, num_spatial_bins))
+    gauss_ = gaussian1d(torch.linspace(-bin_size/2, bin_size/2, num_ang_bins), sigma=1e2)
     weight_mat = torch.outer(gauss_, gauss_).squeeze(0).repeat(B, 1, 1)
 
     # Iterate over spatial bins
-    for i in range(num_spatial_bins):
+    for i in tqdm(range(num_spatial_bins), desc="Sifting"):
         for j in range(num_spatial_bins):
             # Define spatial bin boundaries
             x_min = int(i * bin_size)
@@ -175,16 +176,23 @@ def calc_sift_descriptor(input: torch.Tensor,
             y_min = int(j * bin_size)
             y_max = int((j + 1) * bin_size)
 
-            # Iterate over pixels in spatial bin
-            for x in range(x_min, x_max):
-                for y in range(y_min, y_max):
-                    for b in range(B):
-                        # Compute gradient orientation bin
-                        bin_index = torch.round(orientation[b, x, y] / (2 * math.pi / num_ang_bins)).to(torch.int)
-                        # Accumulate magnitude into descriptor
-                        # print(bin_index, i, j, magnitude[..., x, y], weight_mat[x-x_min, y-y_min], magnitude[..., x, y] * weight_mat[x-x_min, y-y_min])
-                        descriptor[b, bin_index, i, j] += magnitude[b, x, y] * weight_mat[b, x-x_min, y-y_min]
+            bin_indicies = torch.floor(orientation[:, x_min:x_max, y_min:y_max] / (2 * math.pi / num_ang_bins)).to(torch.int)
+            sub_patch = magnitude[:, x_min:x_max, y_min:y_max]
 
+            for bin_ in range(num_ang_bins):
+                mask = bin_indicies == bin_
+                descriptor_[:, bin_, i, j] = torch.sum(sub_patch[mask] * weight_mat[mask])
+
+            # Iterate over pixels in spatial bin
+            # for x in range(x_min, x_max):
+            #     for y in range(y_min, y_max):
+            #         for b in range(B):
+            #             # Compute gradient orientation bin
+            #             bin_index = torch.floor(orientation[b, x, y] / (2 * math.pi / num_ang_bins)).to(torch.int)
+            #             # Accumulate magnitude into descriptor
+            #             # print(bin_index, i, j, magnitude[..., x, y], weight_mat[x-x_min, y-y_min], magnitude[..., x, y] * weight_mat[x-x_min, y-y_min])
+            #             descriptor_[b, bin_index, i, j] += magnitude[b, x, y] * weight_mat[b, x-x_min, y-y_min]
+            # print(i, j, torch.sum(torch.abs(descriptor - descriptor_))/torch.sum(descriptor))
     # L2-normalize descriptor
     descriptor = F.normalize(descriptor.view(B, -1), p=2, dim=1)
     # Clip descriptor values
