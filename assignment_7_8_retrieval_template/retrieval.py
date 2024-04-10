@@ -139,7 +139,7 @@ def ransac_affine(query_geometry, shortlist_geometry, correspondences, inlier_th
             Ad = get_A_matrix_from_geom(shortlist_geometry[k][d_id])  # shape of local feature from DB image
 
             A = Ad @ np.linalg.inv(Aq)
-            transformed_query_points = (A @ query_geometry.reshape((-1, 3))).T
+            transformed_query_points = (A @ query_geometry.reshape((-1, 3)).T)
             distances = np.linalg.norm(transformed_query_points - shortlist_geometry[k], axis=1)
             number_of_inliers = np.sum(distances < inlier_threshold)
 
