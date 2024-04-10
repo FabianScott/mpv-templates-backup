@@ -22,8 +22,9 @@ def hdist(H: torch.Tensor, pts_matches: torch.Tensor):
     # The projected coords
     vec_ = pts_matches[:, 2:]
     H_vec = H @ vec.T
-
-    dist = torch.square(vec_ - H_vec.T[:, :2]).sum(dim=1)
+    H_vec[:, 0] /= H_vec[:, 2]
+    H_vec[:, 1] /= H_vec[:, 2]
+    dist = torch.square(vec_ - (H_vec.T[:, :2])).sum(dim=1)
 
     return dist
 
@@ -68,7 +69,7 @@ def getH(min_sample):
 
     if torch.linalg.matrix_rank(C) < 8:
         return None
-    _, _, V = torch.svd(C)
+    _, _, V = torch.linalg.svd(C, full_matrices=True)
     H = V[:, -1].reshape(3, 3)
     H_norm = H/(H[-1,-1] + 1e-10)
     return H_norm
