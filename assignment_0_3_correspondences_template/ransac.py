@@ -21,10 +21,10 @@ def hdist(H: torch.Tensor, pts_matches: torch.Tensor):
     vec = torch.concat((pts_matches[:, :2], torch.ones((B, 1))), dim=1)
     # The projected coords
     vec_ = pts_matches[:, 2:]
-    H_vec = H @ vec.T
+    H_vec = vec @ H
     H_vec[:, 0] /= H_vec[:, 2]
     H_vec[:, 1] /= H_vec[:, 2]
-    dist = torch.square(vec_ - (H_vec.T[:, :2])).sum(dim=1)
+    dist = torch.square(vec_ - (H_vec[:, :2])).sum(dim=1)
 
     return dist
 

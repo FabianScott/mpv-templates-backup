@@ -1,3 +1,5 @@
+import copy
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -16,9 +18,15 @@ def get_dataset_statistics(dataset: torch.utils.data.Dataset) -> Tuple[List, Lis
     Return:
         tuple of Lists of floats. len of each list should equal to number of input image/tensor channels
     '''
-    mean = [0., 0., 0.]
-    std = [1.0, 1.0, 1.0]
-    return mean, std
+    mean = torch.tensor([0., 0., 0.])
+    std = torch.tensor([1.0, 1.0, 1.0])
+    length = len(dataset)
+    for data in dataset:
+        img, label = data
+        mean += torch.mean(img, dim=[1, 2], keepdim=True).flatten()
+        std += torch.std(img, dim=[1, 2], keepdim=True).flatten()
+
+    return [el.item() for el in mean/length], [el.item() for el in std/length]
 
 
 class SimpleCNN(nn.Module):
@@ -66,8 +74,9 @@ class SimpleCNN(nn.Module):
 def weight_init(m: nn.Module) -> None:
     '''Function, which fills-in weights and biases for convolutional and linear layers'''
     if isinstance(m, nn.Conv2d) or isinstance(m, nn.Linear):
-        #do something here. You can access layer weight or bias by m.weight or m.bias
-     pass #do something
+        nn.init.normal_(m.weight, mean=0.0, std=0.02)
+        if m.bias is not None:
+            nn.init.constant_(m.bias, 0.0)
     return
 
 def train_and_val_single_epoch(model: torch.nn.Module,
@@ -81,6 +90,7 @@ def train_and_val_single_epoch(model: torch.nn.Module,
                        device: torch.device = torch.device('cpu'),
                        additional_params: Dict = {}) -> torch.nn.Module:
     '''Function, which runs training over a single epoch in the dataloader and returns the model. Do not forget to set the model into train mode and zero_grad() optimizer before backward.'''
+    do_acc = additional_params['do_acc'] if 'do_acc' in additional_params else False
     model.train()
     if epoch_idx == 0:
         val_loss, additional_out = validate(model, val_loader, loss_fn, device, additional_params)
@@ -89,17 +99,33 @@ def train_and_val_single_epoch(model: torch.nn.Module,
             if do_acc:
                 writer.add_scalar("Accuracy/val", additional_out['acc'], 0)
             writer.add_scalar("Loss/val", val_loss, 0)
-    for idx, (data, labels) in tqdm(enumerate(train_loader), total=num_batches):
-         pass #do something
+    for idx, (data, labels) in tqdm(enumerate(train_loader), total=train_loader.num_batches):
+        loss, additional_out = validate(model, data, loss_fn, device)
+        optim.zero_grad()
+        loss.backward()
+        optim.step()
     return model
 
 def lr_find(model: torch.nn.Module,
             train_dl:torch.utils.data.DataLoader,
             loss_fn:torch.nn.Module,
             min_lr: float=1e-7, max_lr:float=100, steps:int = 50)-> Tuple:
-    '''Function, which run the training for a small number of iterations, increasing the learning rate and storing the losses. Model initialization is saved before training and restored after training'''
-    lrs = np.ones(steps)
+    '''Function, which run the training for a small number of iterations, increasing the learning rate and storing the losses.
+    Model initialization is saved before training and restored after training'''
+    lrs = torch.logspace(min_lr, max_lr, steps)
     losses = np.ones(steps)
+    for i, lr in tqdm(enumerate(lrs), desc='Finding LR', total=len(lrs)):
+        weight_init(model)
+        optim = torch.optim.Adam(model.parameters(), lr=lr)
+        for idx, (data, labels) in tqdm(enumerate(train_dl), total=train_dl.num_batches, desc='Steps'):
+            loss, additional_out = validate(model, data, loss_fn, next(model.parameters()).device)
+            optim.zero_grad()
+            loss.backward()
+            optim.step()
+            if idx == 2:
+                losses[i] = loss
+                break
+    weight_init(model)
     return losses, lrs
 
 
@@ -113,11 +139,15 @@ def validate(model: torch.nn.Module,
     acc = 0
     loss = 0
     do_acc = False
+    model.to(device)
     if 'with_acc' in additional_params:
         do_acc = additional_params['with_acc']
     for idx, (data, labels) in tqdm(enumerate(val_loader), total=len(val_loader)):
         with torch.no_grad():
-             pass #do something
+            preds = model(data)
+            loss += loss_fn(preds, labels)
+            if do_acc:
+                acc += torch.sum(preds == labels) / len(val_loader)
     return loss, {'acc': acc}
 
 
@@ -136,5 +166,5 @@ class TestFolderDataset(torch.utils.data.Dataset):
 
 def get_predictions(model: torch.nn.Module, test_dl: torch.utils.data.DataLoader)->torch.Tensor :
     '''Function, which predicts class indexes for image in data loader. Ouput shape: [N, 1], where N is number of image in the dataset'''
-    out = torch.zeros(len(test_dl)).long()
-    return out
+    out = [model(img) for img, label in test_dl]
+    return torch.tensor(out).reshape((len(test_dl), 1))
