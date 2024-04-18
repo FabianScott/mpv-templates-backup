@@ -112,14 +112,15 @@ def lr_find(model: torch.nn.Module,
             min_lr: float=1e-7, max_lr:float=100, steps:int = 50)-> Tuple:
     '''Function, which run the training for a small number of iterations, increasing the learning rate and storing the losses.
     Model initialization is saved before training and restored after training'''
-    lrs = torch.logspace(min_lr, max_lr, steps)
+    lrs = np.logspace(min_lr, max_lr, steps)
     losses = np.ones(steps)
     for i, lr in tqdm(enumerate(lrs), desc='Finding LR', total=len(lrs)):
         weight_init(model)
         optim = torch.optim.Adam(model.parameters(), lr=lr)
-        for idx, (data, labels) in tqdm(enumerate(train_dl), total=train_dl.num_batches, desc='Steps'):
-            loss, additional_out = validate(model, data, loss_fn, next(model.parameters()).device)
+        for idx, (data, labels) in tqdm(enumerate(train_dl), total=3, desc='Steps'):
             optim.zero_grad()
+            preds = get_predictions(model, data)
+            loss = loss_fn(preds, labels)
             loss.backward()
             optim.step()
             if idx == 2:
@@ -147,7 +148,7 @@ def validate(model: torch.nn.Module,
             preds = model(data)
             loss += loss_fn(preds, labels)
             if do_acc:
-                acc += torch.sum(preds == labels) / len(val_loader)
+                acc += torch.sum(preds.argmax(dim=1) == labels) / len(val_loader)
     return loss, {'acc': acc}
 
 
@@ -168,3 +169,7 @@ def get_predictions(model: torch.nn.Module, test_dl: torch.utils.data.DataLoader
     '''Function, which predicts class indexes for image in data loader. Ouput shape: [N, 1], where N is number of image in the dataset'''
     out = [model(img) for img, label in test_dl]
     return torch.tensor(out).reshape((len(test_dl), 1))
+
+def get_accuracy(model: torch.nn.Module, test_dl: torch.utils):
+    out = torch.tensor([model(img) == label for img, label in test_dl]).squeeze()
+    return torch.sum(out) / len(out)
