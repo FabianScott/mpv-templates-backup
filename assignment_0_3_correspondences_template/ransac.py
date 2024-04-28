@@ -81,7 +81,6 @@ def getH(min_sample):
     V = V.transpose(-2, -1)
     H = V[..., -1].reshape(3, 3)
     H = torch.linalg.inv(transform2)[0] @ (H @ transform1)
-    print(H[:, -1,-1], )
     H_norm = H/(H[:, -1,-1] + 1e-10)
     return H_norm
 
