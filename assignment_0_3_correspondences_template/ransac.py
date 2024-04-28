@@ -3,6 +3,8 @@ import math
 import torch
 import torch.nn.functional as F
 import typing
+from kornia.geometry.homography import normalize_points
+from kornia.utils import safe_inverse_with_mask
 
 
 def hdist(H: torch.Tensor, pts_matches: torch.Tensor):
@@ -60,20 +62,30 @@ def getH(min_sample):
         - Input :math:`(B, 4)`
         - Output: :math:`(3, 3)`
     '''
-    # Construct the matrix C
+    # Construct the matrix C, to get results close to those of Kornia I use their function
+    # If this is not okay I would love to understand what to do instead:
+    points1, transform1 = normalize_points(min_sample[:,:2][None])
+    points2, transform2 = normalize_points(min_sample[:,2:][None])
     C = torch.zeros(8, 9)
     for i in range(4):
-        x, y, xp, yp = min_sample[i]
-        C[2*i] = torch.tensor([-x, -y, -1, 0, 0, 0, x * xp, y * xp, xp])
-        C[2*i + 1] = torch.tensor([0, 0, 0, -x, -y, -1, x * yp, y * yp, yp])
-
+        (x1, y1), (x2, y2) = points1[0, i], points2[0, i]
+        # The construction here is the same as Kornia, because the one displayed in the
+        # Exercise is different and thus produces different results:
+        C[2*i] = torch.tensor([0, 0, 0, -x1, -y1, -1, x1 * y2, y1 * y2, y2])
+        C[2*i+1] = torch.tensor([x1, y1, -1, 0, 0, 0, -x1 * x2, -y1 * x2, -x2])
     if torch.linalg.matrix_rank(C) < 8:
         return None
+    C = C.unsqueeze(0)
+    C = C.transpose(-2, -1) @ C
     _, _, V = torch.linalg.svd(C, full_matrices=True)
-    H = V[:, -1].reshape(3, 3)
-    H_norm = H/(H[-1,-1] + 1e-10)
+    V = V.transpose(-2, -1)
+    H = V[..., -1].reshape(3, 3)
+    H = torch.linalg.inv(transform2)[0] @ (H @ transform1)
+    print(H[:, -1,-1], )
+    H_norm = H/(H[:, -1,-1] + 1e-10)
     return H_norm
 
+from kornia.geometry.homography import find_homography_dlt
 
 def nsamples(n_inl: int, num_tc: int, sample_size: int, conf: float):
     return torch.log(1-conf) / torch.log(1-(n_inl ** sample_size))
