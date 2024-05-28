@@ -105,27 +105,30 @@ def track_kcf(img_next: np.array,
     z = img_next[y:y+h, x:x+w, :]
 
     # compute responses for z
-    responses = np.zeros_like(z)
+    responses = kcf_detect(S.alphaf, S.x_train * S.envelope, z * S.envelope, pars)
     # find the location of the maximum in the responses, 
     # From that, compute how the patch has shifted from the previous frame: 
-    dx = 0
-    dy = 0 
-    
-    
+    dx, dy = np.unravel_index(np.argmax(responses), responses.shape[:2])
+
+    # if dy > h // 2:
+    #     dy -= h
+    # if dx > w // 2:
+    #     dx -= w
     # update the position of the bbox: 
     S.x += dx
     S.y += dy 
     
     # extract the patch from the current image again, using 
     # new estimate of bbox position 
-    patch_next = np.zeros_like(z)
-    
-    # update the training image S.x_train by patch_next (with adaptation) 
-    S.x_train = 1.0 * S.x_train 
-    
-    # recompute alphaf for the updated training image: 
-    # S.alphaf = ... 
+    x, y = S.x, S.y
+    patch_next = img_next[y:y+h, x:x+w, :]
 
+    # update the training image S.x_train by patch_next (with adaptation) 
+    gamma = pars.gamma
+    S.x_train = (1 - gamma) * S.x_train + gamma * patch_next * S.envelope
+
+    # recompute alphaf for the updated training image: 
+    S.alphaf = kcf_train(S.x_train, S.y_response, pars)
 
     # keep responses and current patch in S, to be easily accessible 
     # for inspection

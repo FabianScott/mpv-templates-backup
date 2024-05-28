@@ -1,4 +1,4 @@
-from imagefiltering import spatial_gradient_first_order, extract_affine_patches
+from imagefiltering import spatial_gradient_first_order, extract_affine_patches, affine
 from ransac import ransac_h
 
 import os.path
@@ -37,20 +37,24 @@ def get_patches_subpix(img: torch.Tensor,
     Returns:
        patches: torch.Tensor, size (N, 1, PS, PS)
     """
-
     # YOUR_IMPLEMENTATION_START
+    _, _, H, W = img.size()
     PS = window_hsize*2+1
-    return torch.rand(len(xs), 1, PS, PS)
-    # YOUR_IMPLEMENTATION_END
+    N = xs.shape[0]
+    unitx = torch.tensor([[1., 0.]] * N) + xs
+    unity = torch.tensor([[0., 1.]] * N) + xs
+    A = affine(xs, unitx, unity, )
+    out = extract_affine_patches(img, A=A, img_idxs=torch.zeros(N, dtype=torch.int), PS=PS, ext=window_hsize)
+
+    return out
 
 
-
-def klt_compute_updates(Ts: torch.Tensor, 
-                        img_next: torch.Tensor, 
-                        img_next_gradient: torch.Tensor, 
-                        xs: torch.Tensor, 
-                        ps: torch.Tensor, 
-                        window_hsize: int, 
+def klt_compute_updates(Ts: torch.Tensor,
+                        img_next: torch.Tensor,
+                        img_next_gradient: torch.Tensor,
+                        xs: torch.Tensor,
+                        ps: torch.Tensor,
+                        window_hsize: int,
                         ):
     """
     Compute KLT update. 
@@ -75,12 +79,48 @@ def klt_compute_updates(Ts: torch.Tensor,
     """
 
     # YOUR_IMPLEMENTATION_START
-    N = len(xs) # number of patches 
-    dps = torch.zeros(N, 2) # allocation of result
-    # YOUR_IMPLEMENTATION_END
+    N, _, L, _ = Ts.size() # number of patches
+    B, ch, H, W = img_next.size()
 
-            
+    # Initialize dps tensor
+    dps = torch.zeros_like(ps)
+    patches_next = get_patches_subpix(img_next, xs + ps, window_hsize)
+    patch_grad_x = get_patches_subpix(img_next_gradient[:, :, 0, :, :], xs, window_hsize)
+    patch_grad_y = get_patches_subpix(img_next_gradient[:, :, 1, :, :], xs, window_hsize)
+    # Loop over patches
+    for i in range(N):
+        # Extract patch from template image
+        T_patch = Ts[i:i + 1, :, :, :]
+
+        # Extract patch from the target image
+        I_patch = patches_next[i]
+        I_gradient_patch = torch.cat((patch_grad_x.reshape(B, ch, L ** 2, 1, ), patch_grad_y.reshape(B, ch, L ** 2, 1,) ), dim=3)
+
+        diff_patch = T_patch - I_patch
+        A = I_gradient_patch
+        b = diff_patch.reshape((B, ch, L ** 2, 1))
+
+        sol = torch.linalg.lstsq(A, b)
+        z = sol.solution
+
+        dps[i] = z.squeeze()
+
+        # fig, axs = plt.subplots(2, 3)
+        # axs[0, 0].set_title(f'Starting patch ')
+        # axs[0, 0].imshow(T_patch.detach().numpy().squeeze())
+        # axs[0, 1].set_title(f'Next patch, dps={dps[0, 0].item():.4f}{dps[0, 1]:.4f}')
+        # axs[0, 1].imshow(I_patch.detach().numpy().squeeze())
+        # axs[0, 2].set_title('Diff patch')
+        # axs[0, 2].imshow(diff_patch.detach().numpy().squeeze())
+        # axs[1, 0].set_title('Next grad x')
+        # axs[1, 0].imshow(patch_grad_x.detach().numpy().squeeze())
+        # axs[1, 1].set_title('Next grad y')
+        # axs[1, 1].imshow(patch_grad_y.detach().numpy().squeeze())
+        # plt.tight_layout()
+        # plt.show()
+
     return dps
+
 
 def track_klt(img_prev: torch.Tensor, 
               img_next: torch.Tensor, 
@@ -98,17 +138,18 @@ def track_klt(img_prev: torch.Tensor,
     iter_count = 0 
     
     while iter_count < pars.klt_max_iter:
-        dps = klt_compute_updates(Ts, img_next, img_next_gradient, xs, ps, window_hsize)
+        dps = klt_compute_updates(Ts, img_next, img_next_gradient, xs, ps, window_hsize,)
         ps += dps 
         iter_count += 1 
   
-    # if an element of dps is smaller then threshold then the point has converged.
+    # if an element of dps is smaller than threshold then the point has converged.
     dps_norm2 = (dps**2).sum(axis=1)
     idx = (dps_norm2 <= pars.klt_stop_thr).nonzero().squeeze() 
     # for further tracking, keep just the converged points: 
     xs_new = xs[idx] + ps[idx] 
     point_ids_new = point_ids[idx] 
     return xs_new, point_ids_new 
+
 
 def compute_and_show_homography(pts_fname = 'tracked_points.pt', result_fname = 'result.pdf'): 
 
@@ -140,7 +181,7 @@ def compute_and_show_homography(pts_fname = 'tracked_points.pt', result_fname = 
     # in the last frame.
 
     # YOUR_IMPLEMENTATION_START
-    correspondences = torch.cat( (xs1, xs1), 1)
+    correspondences = torch.cat( (xs0, xs1), 1)
     # YOUR_IMPLEMENTATION_END
 
 

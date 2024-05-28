@@ -108,6 +108,16 @@ def get_tentative_correspondences(query_visual_words, shortlist_visual_words):
     return correspondences
 
 
+def count_inliers(query_points, db_points, A, inlier_threshold):
+    # Apply the transformation matrix A to the query points
+    transformed_points = (A @ query_points.T).T
+    # Calculate the Euclidean distances between transformed points and database points
+    distances = np.linalg.norm(transformed_points - db_points, axis=1)
+    # Count the number of inliers within the inlier threshold
+    inliers = distances < inlier_threshold
+    return np.sum(inliers)
+
+
 def ransac_affine(query_geometry, shortlist_geometry, correspondences, inlier_threshold):
     """
 
@@ -138,10 +148,11 @@ def ransac_affine(query_geometry, shortlist_geometry, correspondences, inlier_th
             Aq = get_A_matrix_from_geom(query_geometry[q_id])  # shape of local feature from the query
             Ad = get_A_matrix_from_geom(shortlist_geometry[k][d_id])  # shape of local feature from DB image
 
-            A = Ad @ np.linalg.inv(Aq)
-            transformed_query_points = (A @ query_geometry.reshape((-1, 3)).T)
-            distances = np.linalg.norm(transformed_query_points - shortlist_geometry[k], axis=1)
-            number_of_inliers = np.sum(distances < inlier_threshold)
+            points1 = np.hstack([query_geometry[corr[:, 0]], np.ones((N, 1))])
+            points2 = np.hstack([shortlist_geometry[k][corr[:, 1]], np.ones((N, 1))])
+            A = np.linalg.lstsq(points1, points2, rcond=None)[0].T
+
+            number_of_inliers = count_inliers(points1, points2, A, inlier_threshold)
 
             if number_of_inliers > best_score:
                 best_score = number_of_inliers

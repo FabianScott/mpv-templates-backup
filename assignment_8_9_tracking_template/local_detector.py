@@ -1,0 +1,212 @@
+import numpy as np
+import math
+import torch
+import torch.nn.functional as F
+import typing
+
+from imagefiltering import *
+
+
+def harris_response(x: torch.Tensor,
+                    sigma_d: float,
+                    sigma_i: float,
+                    alpha: float = 0.04) -> torch.Tensor:
+    r"""Computes the Harris cornerness function.The response map is computed according the following formulation:
+
+    .. math::
+        R = det(M) - alpha \cdot trace(M)^2
+
+    where:
+
+    .. math::
+        M = \sum_{(x,y) \in W}
+        \begin{bmatrix}
+            I^{2}_x & I_x I_y \\
+            I_x I_y & I^{2}_y \\
+        \end{bmatrix}
+
+    and :math:`k` is an empirically determined constant
+    :math:`k ∈ [ 0.04 , 0.06 ]`
+
+    Args:
+        x: torch.Tensor: 4d tensor
+        sigma_d (float): sigma of Gaussian derivative
+        sigma_i (float): sigma of Gaussian blur, aka integration scale
+        alpha (float): constant
+
+    Return:
+        torch.Tensor: Harris response
+
+    Shape:
+      - Input: :math:`(B, C, H, W)`
+      - Output: :math:`(B, C, H, W)`
+    """
+    temp = spatial_gradient_first_order(x=x, sigma=sigma_d)
+    Ix, Iy = temp[:, :, 0], temp[:, :, 1]
+    Ixx = gaussian_filter2d(x=Ix ** 2, sigma=sigma_i)
+    Ixy = gaussian_filter2d(x=Ix * Iy, sigma=sigma_i)
+    Iyy = gaussian_filter2d(x=Iy ** 2, sigma=sigma_i)
+
+    det_C = (Ixx * Iyy) - (Ixy ** 2)
+    trace_C = (Ixx + Iyy)
+    out = det_C - alpha * trace_C ** 2
+
+    return out
+
+
+def nms2d(x: torch.Tensor, th: float = 0):
+    r"""Applies non maxima suppression to the feature map in 3x3 neighborhood.
+    Args:
+        x: torch.Tensor: 4d tensor
+        th (float): threshold
+    Return:
+        torch.Tensor: nmsed input
+
+    Shape:
+      - Input: :math:`(B, C, H, W)`
+      - Output: :math:`(B, C, H, W)`
+    """
+    B, C, H, W = x.size()
+
+    kernel = torch.eye(9)
+    kernel[4, 4] = 0
+    kernel = kernel.view(9, 1, 3, 3).repeat(C, 1, 1, 1)
+
+    non_center = F.conv2d(x,
+                          kernel,
+                          stride=1,
+                          groups=C,
+                          padding=1).view(B, C, -1, H, W)
+    max_non_center = torch.max(non_center, dim=2)[0]
+    mask = (x > max_non_center) & (x > th)
+    out = torch.zeros_like(x)
+    out[mask] = x[mask]
+    return out
+
+
+def harris(x: torch.Tensor, sigma_d: float, sigma_i: float, th: float = 0):
+    r"""Returns the coordinates of maximum of the Harris function.
+    Args:
+        x: torch.Tensor: 4d tensor
+        sigma_d (float): scale
+        sigma_i (float): scale
+        th (float): threshold
+
+    Return:
+        torch.Tensor: coordinates of local maxima in format (b,c,h,w)
+
+    Shape:
+      - Input: :math:`(B, C, H, W)`
+      - Output: :math:`(N, 4)`, where N - total number of maxima and 4 is (b,c,h,w) coordinates
+    """
+    harris_mat = harris_response(x, sigma_d=sigma_d, sigma_i=sigma_i)
+    # To get coordinates of the responses, you can use torch.nonzero function
+    nmsd = nms2d(harris_mat, th)
+    out = torch.nonzero(nmsd)
+    return out
+
+
+def create_scalespace(x: torch.Tensor, n_levels: int, sigma_step: float):
+    r"""Creates a scale pyramid of image, usually used for local feature
+    detection. Images are consequently smoothed with Gaussian blur.
+    Args:
+        x: torch.Tensor :math:`(B, C, H, W)`
+        n_levels (int): number of the levels.
+        sigma_step (float): blur step.
+
+    Returns:
+        Tuple(torch.Tensor, List(float)):
+        1st output: image pyramid, (B, C, n_levels, H, W)
+        2nd output: sigmas (coefficients for scale conversion)
+    """
+
+    image_pyramid = []
+    sigmas = [1.]
+
+    for level in range(0, n_levels):
+        smoothed_image = gaussian_filter2d(x, sigma=sigmas[-1])
+        image_pyramid.append(smoothed_image)
+        sigmas.append(sigmas[level] * sigma_step)
+
+    image_pyramid = torch.stack(image_pyramid, dim=2)  # Stack along the third dimension to create the pyramid tensor
+
+    return image_pyramid, sigmas[:-1]
+
+
+def nms3d(x: torch.Tensor, th: float = 0):
+    r"""Applies non maxima suppression to the scale space feature map in 3x3x3 neighborhood.
+    Args:
+        x: torch.Tensor: 5d tensor
+        th (float): threshold
+    Shape:
+      - Input: :math:`(B, C, D, H, W)`
+      - Output: :math:`(B, C, D, H, W)`
+    """
+    B, C, D, H, W = x.size()
+
+    kernel = torch.eye(27)
+    kernel[13, 13] = 0
+    kernel = kernel.view(27, 1, 3, 3, 3).repeat(C, 1, 1, 1, 1)
+
+    # x_pad = F.pad(x, (1,) * 4, mode='replicate')
+    non_center = F.conv3d(x,
+                          kernel,
+                          stride=1,
+                          groups=C,
+                          padding=1)
+    max_non_center = torch.max(non_center, dim=1)[0]
+    mask = (x > max_non_center) & (x > th)
+    out = torch.zeros_like(x)
+    out[mask] = x[mask]
+
+    return out
+
+
+def scalespace_harris_response(x: torch.Tensor,
+                               n_levels: int = 40,
+                               sigma_step: float = 1.1):
+    r"""First computes scale space and then computes the Harris cornerness function 
+    Args:
+        x: torch.Tensor: 4d tensor
+        n_levels (int): number of the levels, (default 40)
+        sigma_step (float): blur step, (default 1.1)
+
+    Shape:
+      - Input: :math:`(B, C, H, W)`
+      - Output: :math:`(B, C, N_LEVELS, H, W)`, List(floats)
+    """
+    scalespace, sigmas = create_scalespace(x, n_levels, sigma_step)
+    response_list = []
+    for scale_level in range(n_levels):
+        response_list.append((harris_response(scalespace[:, :, scale_level, :, :], sigma_d=1, sigma_i=1) * sigmas[
+            scale_level] ** 4).unsqueeze(2))
+    out = torch.cat(response_list, dim=2)
+    return out
+
+
+def scalespace_harris(x: torch.Tensor,
+                      th: float = 0,
+                      n_levels: int = 40,
+                      sigma_step: float = 1.1):
+    r"""Returns the coordinates of maximum of the Harris function.
+    Args:
+        x: torch.Tensor: 4d tensor
+        th (float): threshold
+        n_levels (int): number of scale space levels (default 40)
+        sigma_step (float): blur step, (default 1.1)
+        
+    Shape:
+      - Input: :math:`(B, C, H, W)`
+      - Output: :math:`(N, 5)`, where N - total number of maxima and 5 is (b,c,d,h,w) coordinates
+    """
+    response = scalespace_harris_response(x=x,
+                                          n_levels=n_levels,
+                                          sigma_step=sigma_step)
+    nmsed = nms3d(response, th)
+    # nmsed = nms3d(nmsed, th)
+    # To get coordinates of the responses, you can use torch.nonzero function
+    loc = torch.nonzero(nmsed)
+    # Don't forget to convert scale index to scale value with use of sigma
+    loc[:, 2] = 1 * (sigma_step ** loc[:, 2])
+    out = loc
+    return out
