@@ -84,37 +84,60 @@ class CUBtriplet(data.Dataset):
         return des, labels
 
     def minehard(self, model):
-        des, labels = self.extract_images(model)
-        self.hardneg = []
-        for de in des:
-            dists = torch.cdist(de.unsqueeze(0), des).flatten()
-            idx = torch.randint(low=1, high=31, size=(1,))
-            argsort_idx = torch.argsort(dists)[idx].item()
-            self.hardneg.append(argsort_idx)
+        descriptors, labels = self.extract_images(model)
+        for i, (descriptor, label) in enumerate(zip(descriptors, labels)):
+            dists = torch.cdist(descriptor.unsqueeze(0), descriptors).flatten()
+            argsort = torch.argsort(dists)
+            argsort_idx = copy.deepcopy(i)
+            while labels[argsort_idx] == label:
+                idx = torch.randint(low=0, high=30, size=(1,)).item()
+                argsort_idx = argsort[idx]
+
+            self.hardneg[i] = argsort_idx
+
+            # import matplotlib.pyplot as plt
+            # img, img_pos, img_neg, lab1, lab2, lab3 = self.__getitem__(i, True)
+            # fig, axs = plt.subplots(1, 3)
+            # axs[0].set_title(f'Img class: {labels[i]} {lab1}')
+            # axs[0].imshow(img.detach().numpy().squeeze().transpose(1,2,0))
+            # axs[1].set_title(f'Img Pos {lab2}')
+            # axs[1].imshow(img_pos.detach().numpy().squeeze().transpose(1,2,0))
+            # axs[2].set_title(f'Img Neg {lab3}')
+            # axs[2].imshow(img_neg.detach().numpy().squeeze().transpose(1,2,0))
+            # plt.tight_layout()
+            # plt.show()
         # mine hard negatives and store them in "self.hardneg" - your code
         # ........
         # ........
         # ........
         # ........
         # ........
-        self.hardneg = torch.tensor(self.hardneg)
 
     # this is used to iterate over triplets 
     # and is called by the data-loader for batch construction
-    def __getitem__(self, index):
-        img1, label1 = Image.open(self.img[index]).convert('RGB'), self.labels[index].item()
+    def __getitem__(self, index, return_labels=False):
+        img1, lab1 = Image.open(self.img[index]).convert('RGB'), self.labels[index].item()
         img1 = self.transform(img1)
-        idx2 = np.argwhere(self.labels == label1)[0].item()
-        img2 = self.img[idx2]
-        img3 = self.img[self.hardneg[index]]
-        # img1 is the anchor, pick a positve and a hard negative - your code
+
+        positive_mask = self.labels == lab1
+        rand_pos_idx = np.random.randint(low=0, high=np.sum(positive_mask).item(), size=(1,)).item()
+        idxs_2 = np.argwhere(positive_mask)
+        idx2 = idxs_2[rand_pos_idx].item()
+        while idx2 == index:
+            rand_pos_idx = np.random.randint(low=0, high=np.sum(positive_mask).item(), size=(1,)).item()
+            idx2 = idxs_2[rand_pos_idx].item()
+        img2, lab2 = self.getimg(idx2)
+
+        img3, lab3 = self.getimg(self.hardneg[index])
+        # img1 is the anchor, pick a positive and a hard negative - your code
         # ........
         # ........
         # ........
         # ........
         # ........
-        img2, img3 = Image.open(img2).convert('RGB'), Image.open(img3).convert('RGB')
-        return img1, self.transform(img2), self.transform(img3)
+        if return_labels:
+            return img1, img2, img3, lab1, lab2, lab3
+        return img1, img2, img3
 
     # this lets the data-loader know how many items are there to use
     # note that number of triplets = number of training images, since we are using each image once as an anchor
