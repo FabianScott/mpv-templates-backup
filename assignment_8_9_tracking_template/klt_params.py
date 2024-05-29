@@ -21,7 +21,7 @@ pars.frameN         = 284
 # KLT pars:
 pars.klt_window     = 10 
 pars.klt_max_iter   = 20
-pars.klt_stop_thr   = 0.02**2
+pars.klt_stop_thr   = 0.2**2
 pars.klt_sigma_d    = 1.3
 
 pars.harris_thr      = 0.03**4

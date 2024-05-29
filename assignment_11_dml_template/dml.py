@@ -6,7 +6,6 @@ import os, random, copy, pdb, numpy as np, ssl
 from PIL import Image
 from scipy.spatial.distance import cdist
 from numpy import loadtxt
-from tqdm import tqdm
 
 ssl._create_default_https_context = ssl._create_unverified_context  # fix needed for downloading resnet weights
 device = torch.device('cuda:0')  # gpu training is typically much faster if available
@@ -98,6 +97,7 @@ class CUBtriplet(data.Dataset):
         # ........
         # ........
         # ........
+        self.hardneg = torch.tensor(self.hardneg)
 
     # this is used to iterate over triplets 
     # and is called by the data-loader for batch construction
@@ -142,14 +142,13 @@ class GDextractor(nn.Module):
         # ........
         # ........
         # ........
-        self.part1 = nn.Sequential(input_net.conv1,
-                                   input_net.layer1,
-                                   input_net.layer2,
-                                   input_net.layer3,
-                                   input_net.layer4,
-                                   (input_net.maxpool if usemax else nn.AvgPool2d(3, 2, 1)))
-        self.part2 = nn.Sequential(nn.Flatten(), nn.Linear(512 * 7 * 7, dim))
-        self.part3 = nn.BatchNorm1d(dim)
+        self.part1 = nn.Sequential(*list(input_net.children())[:-2])
+        if self.usemax:
+            self.pool = nn.AdaptiveMaxPool2d((1, 1))
+        else:
+            self.pool = nn.AdaptiveAvgPool2d((1, 1))
+        self.part2 = nn.Sequential(nn.Flatten(), nn.Linear(512, dim))
+        self.part3 = nn.functional.normalize
 
     def forward(self, x, eps=1e-6):
         # x are the input image in the batch, extract the global descriptor - your code
@@ -159,8 +158,9 @@ class GDextractor(nn.Module):
         # ........
         # z = .... # global descriptor
         z = self.part1(x)
+        z = self.pool(z)
         z = self.part2(z)
-        z = self.part3(z)
+        z = self.part3(z, eps=eps,)
         return z
 
 
@@ -195,7 +195,8 @@ def triplet_loss(distances_pos, distances_neg, margin):
     # input: pos. and neg. distances per triplet in the batch
     # compute and return the loss per triplet - your code
     # ........
-    return distances_pos - distances_neg + margin
+    loss = torch.nn.ReLU()(distances_pos - distances_neg + margin)
+    return loss
 
 
 def train(model, train_loader, optimizer, margin=0.5):
@@ -212,7 +213,7 @@ def train(model, train_loader, optimizer, margin=0.5):
         set_batchnorm_eval)  # do not update the Batch-Norm running avg/std - helps to get improvements in a couple of epochs
     total_loss = 0
 
-    for batch_idx, data in tqdm(enumerate(train_loader), desc='Training Loop'):  # iterate over batches
+    for batch_idx, data in enumerate(train_loader):  # iterate over batches
         # call the model and get global descriptors v1,v2,v3 for all anchors, positives and negatives in the batch
         v1, v2, v3 = model(data[0].to(device)), model(data[1].to(device)), model(data[2].to(device))
 

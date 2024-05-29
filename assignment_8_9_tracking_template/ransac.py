@@ -106,7 +106,7 @@ def getH(min_sample):
 from kornia.geometry.homography import find_homography_dlt
 
 def nsamples(n_inl: int, num_tc: int, sample_size: int, conf: float):
-    return torch.log(1-conf) / torch.log(1-(n_inl ** sample_size))
+    return torch.log(torch.tensor([1-conf])) / torch.log(torch.tensor([1-(n_inl ** sample_size)]))
 
 
 def ransac_h(pts_matches: torch.Tensor, th: float = 4.0, conf: float = 0.99, max_iter: int = 1000):
@@ -127,7 +127,7 @@ def ransac_h(pts_matches: torch.Tensor, th: float = 4.0, conf: float = 0.99, max
     '''
     i = 0
     sample_size = 4
-    H_best, support_best = torch.eye(3), -torch.inf
+    H_best, support_best = torch.eye(3), torch.tensor([-torch.inf])
 
     while i < max_iter:
         current_points = sample(pts_matches, sample_size)
