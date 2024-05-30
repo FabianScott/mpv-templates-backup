@@ -32,7 +32,7 @@ bbox = [10, 10, 44, 44] # x, y, w, h
 S = kcf_init(img_prev, bbox, pars)
 
 # read next image: 
-test_idx = 3 # possible values: 0..4 (0 = no shift)
+test_idx = 4 # possible values: 0..4 (0 = no shift)
 img_next, true_translation = get_test_data(test_idx)
 
 # call the tracker: 

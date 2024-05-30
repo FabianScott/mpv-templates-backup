@@ -20,7 +20,7 @@ pars.frameN         = 284
 
 # KCF pars:
 pars.rbf_sigma = 2    # RBF Gauss kernel bandwidth
-pars.gamma     = 0.075  # adaptation rate 
+pars.gamma     = 1. #0.075  # adaptation rate
 pars.lam       = 1e-4   # regularization constant
 pars.kernel_type = 'rbf'
 #pars.kernel_type = 'linear'
