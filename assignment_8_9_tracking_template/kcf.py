@@ -4,7 +4,10 @@ import numpy as np
 import typing
 from types import SimpleNamespace
 
-def fft2(x):     
+from matplotlib import pyplot as plt
+
+
+def fft2(x):
     return np.fft.fft2(x, axes = [0, 1])
 
 def ifft2(x): 
@@ -108,21 +111,38 @@ def track_kcf(img_next: np.array,
     responses = kcf_detect(S.alphaf, S.x_train * S.envelope, z * S.envelope, pars)
     # find the location of the maximum in the responses, 
     # From that, compute how the patch has shifted from the previous frame: 
-    dx, dy = np.unravel_index(np.argmax(responses), responses.shape[:2])
-
+    dy, dx = np.unravel_index(np.argmax(responses), responses.shape[:2])
+    dx -=  (responses.shape[0] // 2)
+    dy -=  (responses.shape[1] // 2)
     # if dy > h // 2:
     #     dy -= h
     # if dx > w // 2:
     #     dx -= w
     # update the position of the bbox: 
     S.x += dx
-    S.y += dy 
-    
-    # extract the patch from the current image again, using 
+    S.y += dy
+
+    fig, axs = plt.subplots(2, 3)
+    axs[0, 0].set_title(f'Train Image')
+    axs[0, 0].imshow(S.x_train)
+    axs[1, 0].set_title(f'Next Image')
+    axs[1, 0].imshow(img_next)
+    axs[1, 0].scatter([x], [y], color='blue', s=50, alpha=.7)
+    axs[1, 0].scatter([S.x], [S.y], color='red', s=50, alpha=.7)
+    axs[0, 1].set_title(f'Initial patch, x: {x}, y: {y}')
+    axs[0, 1].imshow(z)
+
+    # extract the patch from the current image again, using
     # new estimate of bbox position 
     x, y = S.x, S.y
     patch_next = img_next[y:y+h, x:x+w, :]
 
+    axs[0, 2].set_title(f'Response, dx: {dx}, dy: {dy}')
+    axs[0, 2].imshow(responses, cmap='gray')
+    axs[1, 2].set_title(f'Patch Next, y: {y}, x: {x}')
+    axs[1, 2].imshow(patch_next)
+    plt.tight_layout()
+    plt.show()
     # update the training image S.x_train by patch_next (with adaptation) 
     gamma = pars.gamma
     S.x_train = (1 - gamma) * S.x_train + gamma * patch_next * S.envelope
